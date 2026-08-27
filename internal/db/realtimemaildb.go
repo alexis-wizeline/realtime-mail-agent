@@ -50,7 +50,7 @@ func (r *RealtimeMailDB) CreateEvents(ctx context.Context, e *models.IngestEvent
 	if err != nil {
 		return err
 	}
-	_, err = qTx.CreateIncommingEvent(ctx, realtimemailsql.CreateIncommingEventParams{
+	_, err = qTx.CreateIncomingEvent(ctx, realtimemailsql.CreateIncomingEventParams{
 		ID: pgtype.UUID{
 			Bytes: incomingUUID,
 			Valid: true,
@@ -73,7 +73,7 @@ func (r *RealtimeMailDB) CreateEvents(ctx context.Context, e *models.IngestEvent
 			Bytes: outboxUUID,
 			Valid: true,
 		},
-		IncommingEventID: pgtype.UUID{
+		IncomingEventID: pgtype.UUID{
 			Bytes: incomingUUID,
 			Valid: true,
 		},
