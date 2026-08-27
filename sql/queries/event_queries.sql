@@ -1,5 +1,5 @@
--- name: CreateIncommingEvent :one
-INSERT INTO incomming_events (
+-- name: CreateIncomingEvent :one
+INSERT INTO incoming_events (
 id,
 event_id,
 event_type,
@@ -14,9 +14,9 @@ $1, $2, $3, $4, $5, $6
 -- name: CreateOutboxEvent :one
 INSERT INTO outbox_events (
 id,
-incomming_event_id,
+incoming_event_id,
 topic,
 payload
 ) VALUES (
 $1, $2, $3, $4
-) ON CONFLICT (incomming_event_id) DO NOTHING RETURNING *;
+) ON CONFLICT (incoming_event_id) DO NOTHING RETURNING *;

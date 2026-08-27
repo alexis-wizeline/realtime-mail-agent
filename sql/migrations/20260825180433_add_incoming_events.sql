@@ -1,5 +1,5 @@
 -- +goose Up
-CREATE TABLE incomming_events(
+CREATE TABLE incoming_events(
     id UUID PRIMARY KEY,
     event_id VARCHAR(255) NOT NULL,
     event_type VARCHAR(255) NOT NULL,
@@ -18,4 +18,4 @@ CREATE TABLE incomming_events(
 );
 
 -- +goose Down
-DROP TABLE incomming_events;
+DROP TABLE incoming_events;
