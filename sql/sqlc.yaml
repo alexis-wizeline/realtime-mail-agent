@@ -1,0 +1,10 @@
+version: "2"
+sql:
+  - schema: "./migrations"
+    queries: "./queries"
+    engine: "postgresql"
+    gen:
+      go:
+        package: "realtimemailsql"
+        out: "../internal/generated/realtimemailsql"
+        sql_package: "pgx/v5"
