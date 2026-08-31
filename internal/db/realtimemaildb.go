@@ -2,24 +2,21 @@ package db
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/alexis-dragneel/realtime-mail-agent/internal/generated/realtimemailsql"
-	"github.com/alexis-dragneel/realtime-mail-agent/internal/server/models"
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
+	ingestevents "github.com/alexis-dragneel/realtime-mail-agent/internal/server/models/ingest_events"
 )
 
-type DB interface {
-	CreateEvents(context.Context, *models.IngestEvent) error
+type Serializable[T any] struct {
+	data T
+	buf  []byte
 }
 
-type DBX interface {
-	realtimemailsql.DBTX
-
-	BeginTx(context.Context, pgx.TxOptions) (pgx.Tx, error)
-	Ping(context.Context) error
+type DB interface {
+	CreateEvents(context.Context, *ingestevents.IngestEvent) error
 }
 
 type RealtimeMailDB struct {
@@ -35,51 +32,32 @@ func NewRealtimeMailDB(p DBX) DB {
 	}
 }
 
-func (r *RealtimeMailDB) CreateEvents(ctx context.Context, e *models.IngestEvent) error {
+func (r *RealtimeMailDB) CreateEvents(ctx context.Context, e *ingestevents.IngestEvent) error {
+
+	buf, err := e.Serialize()
+	if err != nil {
+		return err
+	}
+
+	ser := Serializable[*ingestevents.IngestEvent]{data: e, buf: buf}
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
 	qTx := r.queries.WithTx(tx)
-	incomingUUID, err := uuid.NewV7()
+	incomingEventID, err := createIncomingEvent(ctx, qTx, ser)
 	if err != nil {
+		if errors.Is(err, dupliateIncominEventErr) {
+			return nil
+		}
 		return err
 	}
-	buf, err := json.Marshal(e)
-	if err != nil {
-		return err
-	}
-	_, err = qTx.CreateIncomingEvent(ctx, realtimemailsql.CreateIncomingEventParams{
-		ID: pgtype.UUID{
-			Bytes: incomingUUID,
-			Valid: true,
-		},
-		EventID:   e.EventID,
-		UserID:    e.UserID,
-		MessageID: e.MessageID,
-		EventType: e.Type,
-		Payload:   buf,
-	})
-	if err != nil {
-		return err
-	}
-	outboxUUID, err := uuid.NewV7()
-	if err != nil {
-		return err
-	}
-	_, err = qTx.CreateOutboxEvent(ctx, realtimemailsql.CreateOutboxEventParams{
-		ID: pgtype.UUID{
-			Bytes: outboxUUID,
-			Valid: true,
-		},
-		IncomingEventID: pgtype.UUID{
-			Bytes: incomingUUID,
-			Valid: true,
-		},
-		Topic:   "events",
-		Payload: buf,
-	})
+	err = createOutbocEvent(ctx, qTx,
+		createOutboxEventParams{
+			incommingEventID: incomingEventID,
+			payload:          ser,
+		})
 	if err != nil {
 		return err
 	}

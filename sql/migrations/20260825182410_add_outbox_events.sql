@@ -5,6 +5,7 @@ CREATE TABLE outbox_events(
     incoming_event_id UUID NOT NULL REFERENCES incoming_events(id),
 
     topic VARCHAR(255) NOT NULL,
+    event_type VARCHAR(255) NOT NULL,
     payload JSONB NOT NULL,
 
     status VARCHAR(255) NOT NULL DEFAULT 'pending',

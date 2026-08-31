@@ -16,7 +16,8 @@ INSERT INTO outbox_events (
 id,
 incoming_event_id,
 topic,
+event_type,
 payload
 ) VALUES (
-$1, $2, $3, $4
-) ON CONFLICT (incoming_event_id) DO NOTHING RETURNING *;
+$1, $2, $3, $4, $5
+) ON CONFLICT (incoming_event_id, event_type) DO NOTHING RETURNING *;
