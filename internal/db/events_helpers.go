@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -12,16 +13,36 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-var dupliateIncominEventErr = errors.New("The incomming event to strore is duplicated")
+type OutboxEvent struct {
+	incomingEventID uuid.UUID
+	eventType       string
+	topic           string
+	schemaVersion   string
+}
 
-func createIncomingEvent(ctx context.Context, qTx *realtimemailsql.Queries, e *ingestevents.IngestEvent) (uuid.UUID, error) {
+func (o *OutboxEvent) serialize() ([]byte, error) {
+	return json.Marshal(o)
+}
+
+type OutboxMapperFunc func(incomingEventID uuid.UUID, e *ingestevents.IngestEvent) OutboxEvent
+
+var DefaultOutboxMapper OutboxMapperFunc = func(incomingEventID uuid.UUID, e *ingestevents.IngestEvent) OutboxEvent {
+	return OutboxEvent{
+		incomingEventID: incomingEventID,
+		eventType:       e.Type,
+		topic:           "events",
+		schemaVersion:   "1",
+	}
+}
+
+func createIncomingEvent(ctx context.Context, qTx *realtimemailsql.Queries, e *ingestevents.IngestEvent) (uuid.UUID, bool, error) {
 	id, err := uuid.NewV7()
 	if err != nil {
-		return uuid.UUID{}, err
+		return uuid.UUID{}, false, err
 	}
 	buf, err := e.Serialize()
 	if err != nil {
-		return uuid.UUID{}, fmt.Errorf("unable to serialize the payload: %s", err)
+		return uuid.UUID{}, false, fmt.Errorf("unable to serialize the payload: %s", err)
 	}
 	_, err = qTx.CreateIncomingEvent(ctx,
 		realtimemailsql.CreateIncomingEventParams{
@@ -38,12 +59,12 @@ func createIncomingEvent(ctx context.Context, qTx *realtimemailsql.Queries, e *i
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			// TODO validate if the payload is malformed
-			return uuid.UUID{}, dupliateIncominEventErr
+			return uuid.UUID{}, false, nil
 		}
-		return uuid.UUID{}, err
+		return uuid.UUID{}, false, err
 	}
 
-	return id, nil
+	return id, true, nil
 }
 
 type createOutboxEventParams struct {
@@ -51,12 +72,12 @@ type createOutboxEventParams struct {
 	payload          *ingestevents.IngestEvent
 }
 
-func createOutbocEvent(ctx context.Context, qTx *realtimemailsql.Queries, p createOutboxEventParams) error {
+func createOutbocEvent(ctx context.Context, qTx *realtimemailsql.Queries, e OutboxEvent) error {
 	id, err := uuid.NewV7()
 	if err != nil {
 		return err
 	}
-	buf, err := p.payload.Serialize()
+	buf, err := e.serialize()
 	if err != nil {
 		return fmt.Errorf("unable to serialize the payload: %s", err)
 	}
@@ -67,11 +88,11 @@ func createOutbocEvent(ctx context.Context, qTx *realtimemailsql.Queries, p crea
 				Valid: true,
 			},
 			IncomingEventID: pgtype.UUID{
-				Bytes: p.incommingEventID,
+				Bytes: e.incomingEventID,
 				Valid: true,
 			},
-			EventType: p.payload.Type,
-			Topic:     "events",
+			EventType: e.eventType,
+			Topic:     e.topic,
 			Payload:   buf,
 		})
 	if err != nil {

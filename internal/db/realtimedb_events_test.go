@@ -2,7 +2,6 @@ package db
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"sync"
 	"testing"
@@ -44,28 +43,17 @@ func Test_CreateEvents(t *testing.T) {
 			name: "single call save incomming and outbox events",
 			test: func(t *testing.T) {
 				ingestEvent := newEventPayload()
-				err := db.CreateEvents(ctx, ingestEvent)
+				err := db.CreateEvents(ctx, ingestEvent, DefaultOutboxMapper)
 				if err != nil {
 					t.Fatalf("event not created, %s", err)
 				}
 
-				rows, err := pool.Query(ctx,
-					`SELECT id FROM
-					incoming_events
-					WHERE event_id = $1;`,
-					ingestEvent.EventID)
-				if err != nil {
-					t.Fatalf("Not able to retrive the created event: %s", err)
+				insertedRowsCount := insertedEventsResult(ctx, pool, ingestEvent.EventID)
+				if insertedRowsCount == nil {
+					t.Fatal("insertedRowsCount scan failed")
 				}
-				defer rows.Close()
-
-				fmt.Println(rows.Err(), ingestEvent.EventID)
-				if !rows.Next() {
-					t.Fatal("incomming event not created")
-				}
-
-				if rows.Next() {
-					t.Fatal("Expecting only a single event being created")
+				if *insertedRowsCount != 1 {
+					t.Fatal("the number of inserted incoming and outvbox evets is more than 1")
 				}
 			},
 		},
@@ -73,32 +61,21 @@ func Test_CreateEvents(t *testing.T) {
 			name: "subsequent calls create a single event",
 			test: func(t *testing.T) {
 				ingestEvent := newEventPayload()
-				err := db.CreateEvents(ctx, ingestEvent)
+				err := db.CreateEvents(ctx, ingestEvent, DefaultOutboxMapper)
 				if err != nil {
 					t.Fatalf("event not created, %s", err)
 				}
-				err = db.CreateEvents(ctx, ingestEvent)
+				err = db.CreateEvents(ctx, ingestEvent, DefaultOutboxMapper)
 				if err != nil {
 					t.Fatalf("Subsequent call failed: %s", err)
 				}
 
-				rows, err := pool.Query(ctx,
-					`SELECT id FROM
-				incoming_events
-				WHERE event_id = $1;`,
-					ingestEvent.EventID)
-				if err != nil {
-					t.Fatalf("Not able to retrive the created event: %s", err)
+				insertedRowsCount := insertedEventsResult(ctx, pool, ingestEvent.EventID)
+				if insertedRowsCount == nil {
+					t.Fatal("insertedRowsCount scan failed")
 				}
-				defer rows.Close()
-
-				fmt.Println(rows.Err(), ingestEvent.EventID)
-				if !rows.Next() {
-					t.Fatal("incomming event not created")
-				}
-
-				if rows.Next() {
-					t.Fatal("Expecting only a single event being created")
+				if *insertedRowsCount != 1 {
+					t.Fatal("the number of inserted incoming and outvbox evets is more than 1")
 				}
 			},
 		},
@@ -106,38 +83,32 @@ func Test_CreateEvents(t *testing.T) {
 			name: "concurrent calls create a single event",
 			test: func(t *testing.T) {
 				readyCh := make(chan struct{})
+				errCh := make(chan error, 2)
 				wg := sync.WaitGroup{}
 				ingestEvent := newEventPayload()
 				for range 2 {
 					wg.Go(func() {
 						<-readyCh
-						err := db.CreateEvents(ctx, ingestEvent)
-						if err != nil {
-							t.Fatalf("event not created, %s", err)
-						}
+						errCh <- db.CreateEvents(ctx, ingestEvent, DefaultOutboxMapper)
 					})
 				}
 
 				close(readyCh)
 				wg.Wait()
+				close(errCh)
 
-				rows, err := pool.Query(ctx,
-					`SELECT id FROM
-				incoming_events
-				WHERE event_id = $1;`,
-					ingestEvent.EventID)
-				if err != nil {
-					t.Fatalf("Not able to retrive the created event: %s", err)
-				}
-				defer rows.Close()
-
-				fmt.Println(rows.Err(), ingestEvent.EventID)
-				if !rows.Next() {
-					t.Fatal("incomming event not created")
+				for err := range errCh {
+					if err != nil {
+						t.Fatalf("error while creating event: %s", err)
+					}
 				}
 
-				if rows.Next() {
-					t.Fatal("Expecting only a single event being created")
+				insertedRowsCount := insertedEventsResult(ctx, pool, ingestEvent.EventID)
+				if insertedRowsCount == nil {
+					t.Fatal("insertedRowsCount scan failed")
+				}
+				if *insertedRowsCount != 1 {
+					t.Fatal("the number of inserted incoming and outvbox evets is more than 1")
 				}
 			},
 		},
@@ -147,6 +118,25 @@ func Test_CreateEvents(t *testing.T) {
 		t.Run(tc.name, tc.test)
 	}
 
+}
+
+func insertedEventsResult(ctx context.Context, p *pgxpool.Pool, eventID string) *int {
+	count := new(int)
+
+	row := p.QueryRow(ctx,
+		`SELECT count(*) FROM
+	incoming_events
+	JOIN outbox_events ON
+	outbox_events.incoming_event_id = incoming_events.id
+	WHERE incoming_events.event_id = $1;`,
+		eventID)
+
+	err := row.Scan(count)
+	if err != nil {
+		return nil
+	}
+
+	return count
 }
 
 func newEventPayload() *ingestevents.IngestEvent {
