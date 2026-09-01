@@ -45,7 +45,7 @@ func (r *RealtimeMailDB) CreateEvents(ctx context.Context, e *ingestevents.Inges
 	if !created {
 		return nil
 	}
-	err = createOutbocEvent(ctx, qTx, r.outboxEventMapper(incomingEventID, e))
+	err = createOutboxEvent(ctx, qTx, r.outboxEventMapper(incomingEventID, e))
 	if err != nil {
 		return err
 	}

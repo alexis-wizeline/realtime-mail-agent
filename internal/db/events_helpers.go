@@ -68,7 +68,7 @@ func createIncomingEvent(ctx context.Context, qTx *realtimemailsql.Queries, e *i
 	return id, true, nil
 }
 
-func createOutbocEvent(ctx context.Context, qTx *realtimemailsql.Queries, e OutboxEvent) error {
+func createOutboxEvent(ctx context.Context, qTx *realtimemailsql.Queries, e OutboxEvent) error {
 	id, err := uuid.NewV7()
 	if err != nil {
 		return err

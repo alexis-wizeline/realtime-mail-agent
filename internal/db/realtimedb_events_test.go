@@ -116,6 +116,9 @@ func Test_CreateEvents(t *testing.T) {
 			name: "rollsback when outbox event creation fails",
 			test: func(t *testing.T) {
 				currentMapper := db.outboxEventMapper
+				defer func() {
+					db.outboxEventMapper = currentMapper
+				}()
 				db.outboxEventMapper = func(_ uuid.UUID, e *ingestevents.IngestEvent) OutboxEvent {
 					return OutboxEvent{
 						IncomingEventID: uuid.UUID{},
@@ -159,7 +162,6 @@ func Test_CreateEvents(t *testing.T) {
 					t.Fatal("expectd for outbox creation to be rolledback")
 				}
 
-				db.outboxEventMapper = currentMapper
 			},
 		},
 		{
