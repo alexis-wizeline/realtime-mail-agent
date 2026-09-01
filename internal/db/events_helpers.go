@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/alexis-dragneel/realtime-mail-agent/internal/generated/realtimemailsql"
 	ingestevents "github.com/alexis-dragneel/realtime-mail-agent/internal/server/models/ingest_events"
@@ -13,10 +14,14 @@ import (
 
 var dupliateIncominEventErr = errors.New("The incomming event to strore is duplicated")
 
-func createIncomingEvent(ctx context.Context, qTx *realtimemailsql.Queries, s Serializable[*ingestevents.IngestEvent]) (uuid.UUID, error) {
+func createIncomingEvent(ctx context.Context, qTx *realtimemailsql.Queries, e *ingestevents.IngestEvent) (uuid.UUID, error) {
 	id, err := uuid.NewV7()
 	if err != nil {
 		return uuid.UUID{}, err
+	}
+	buf, err := e.Serialize()
+	if err != nil {
+		return uuid.UUID{}, fmt.Errorf("unable to serialize the payload: %s", err)
 	}
 	_, err = qTx.CreateIncomingEvent(ctx,
 		realtimemailsql.CreateIncomingEventParams{
@@ -24,11 +29,11 @@ func createIncomingEvent(ctx context.Context, qTx *realtimemailsql.Queries, s Se
 				Bytes: id,
 				Valid: true,
 			},
-			EventID:   s.data.EventID,
-			UserID:    s.data.UserID,
-			MessageID: s.data.MessageID,
-			EventType: s.data.Type,
-			Payload:   s.buf,
+			EventID:   e.EventID,
+			UserID:    e.UserID,
+			MessageID: e.MessageID,
+			EventType: e.Type,
+			Payload:   buf,
 		})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -43,13 +48,17 @@ func createIncomingEvent(ctx context.Context, qTx *realtimemailsql.Queries, s Se
 
 type createOutboxEventParams struct {
 	incommingEventID uuid.UUID
-	payload          Serializable[*ingestevents.IngestEvent]
+	payload          *ingestevents.IngestEvent
 }
 
 func createOutbocEvent(ctx context.Context, qTx *realtimemailsql.Queries, p createOutboxEventParams) error {
 	id, err := uuid.NewV7()
 	if err != nil {
 		return err
+	}
+	buf, err := p.payload.Serialize()
+	if err != nil {
+		return fmt.Errorf("unable to serialize the payload: %s", err)
 	}
 	_, err = qTx.CreateOutboxEvent(ctx,
 		realtimemailsql.CreateOutboxEventParams{
@@ -61,9 +70,9 @@ func createOutbocEvent(ctx context.Context, qTx *realtimemailsql.Queries, p crea
 				Bytes: p.incommingEventID,
 				Valid: true,
 			},
-			EventType: p.payload.data.Type,
+			EventType: p.payload.Type,
 			Topic:     "events",
-			Payload:   p.payload.buf,
+			Payload:   buf,
 		})
 	if err != nil {
 		return err

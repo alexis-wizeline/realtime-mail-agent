@@ -10,11 +10,6 @@ import (
 	ingestevents "github.com/alexis-dragneel/realtime-mail-agent/internal/server/models/ingest_events"
 )
 
-type Serializable[T any] struct {
-	data T
-	buf  []byte
-}
-
 type DB interface {
 	CreateEvents(context.Context, *ingestevents.IngestEvent) error
 }
@@ -33,20 +28,13 @@ func NewRealtimeMailDB(p DBX) DB {
 }
 
 func (r *RealtimeMailDB) CreateEvents(ctx context.Context, e *ingestevents.IngestEvent) error {
-
-	buf, err := e.Serialize()
-	if err != nil {
-		return err
-	}
-
-	ser := Serializable[*ingestevents.IngestEvent]{data: e, buf: buf}
-	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
 	qTx := r.queries.WithTx(tx)
-	incomingEventID, err := createIncomingEvent(ctx, qTx, ser)
+	incomingEventID, err := createIncomingEvent(ctx, qTx, e)
 	if err != nil {
 		if errors.Is(err, dupliateIncominEventErr) {
 			return nil
@@ -56,7 +44,7 @@ func (r *RealtimeMailDB) CreateEvents(ctx context.Context, e *ingestevents.Inges
 	err = createOutbocEvent(ctx, qTx,
 		createOutboxEventParams{
 			incommingEventID: incomingEventID,
-			payload:          ser,
+			payload:          e,
 		})
 	if err != nil {
 		return err
