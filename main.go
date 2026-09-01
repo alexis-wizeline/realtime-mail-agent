@@ -27,7 +27,7 @@ func main() {
 	defer pool.Close()
 
 	port := os.Getenv("PORT")
-	server := server.NewServer(db.NewRealtimeMailDB(pool))
+	server := server.NewServer(db.NewRealtimeMailDB(pool, nil))
 
 	err = http.ListenAndServe(":"+port, server)
 	if err != nil {

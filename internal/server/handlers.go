@@ -9,7 +9,7 @@ import (
 
 type serverHandler func(*Server) http.HandlerFunc
 
-var handlerIngestEvents = func(s *Server) http.HandlerFunc {
+var handlerIngestEvents serverHandler = func(s *Server) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		event, err := ingestevents.IngestEVentReqFromBodyRequest(r.Body)
 		if err != nil {

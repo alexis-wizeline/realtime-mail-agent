@@ -2,7 +2,6 @@ package db
 
 import (
 	"context"
-	"errors"
 
 	"github.com/jackc/pgx/v5"
 
@@ -15,15 +14,20 @@ type DB interface {
 }
 
 type RealtimeMailDB struct {
-	queries *realtimemailsql.Queries
-	pool    DBX
+	queries           *realtimemailsql.Queries
+	pool              DBX
+	outboxEventMapper OutboxMapperFunc
 }
 
-func NewRealtimeMailDB(p DBX) DB {
+func NewRealtimeMailDB(p DBX, mapper OutboxMapperFunc) DB {
+	if mapper == nil {
+		mapper = DefaultOutboxMapper
+	}
 	q := realtimemailsql.New(p)
 	return &RealtimeMailDB{
-		pool:    p,
-		queries: q,
+		pool:              p,
+		queries:           q,
+		outboxEventMapper: mapper,
 	}
 }
 
@@ -34,18 +38,14 @@ func (r *RealtimeMailDB) CreateEvents(ctx context.Context, e *ingestevents.Inges
 	}
 	defer tx.Rollback(ctx)
 	qTx := r.queries.WithTx(tx)
-	incomingEventID, err := createIncomingEvent(ctx, qTx, e)
+	incomingEventID, created, err := createIncomingEvent(ctx, qTx, e)
 	if err != nil {
-		if errors.Is(err, dupliateIncominEventErr) {
-			return nil
-		}
 		return err
 	}
-	err = createOutbocEvent(ctx, qTx,
-		createOutboxEventParams{
-			incommingEventID: incomingEventID,
-			payload:          e,
-		})
+	if !created {
+		return nil
+	}
+	err = createOutboxEvent(ctx, qTx, r.outboxEventMapper(incomingEventID, e))
 	if err != nil {
 		return err
 	}
