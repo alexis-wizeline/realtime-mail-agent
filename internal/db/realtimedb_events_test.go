@@ -53,7 +53,7 @@ func Test_CreateEvents(t *testing.T) {
 					t.Fatal("insertedRowsCount scan failed")
 				}
 				if *insertedRowsCount != 1 {
-					t.Fatal("the number of inserted incoming and outvbox evets is more than 1")
+					t.Fatal("the number of inserted incoming and outbox evets is distinct than 1")
 				}
 			},
 		},
@@ -75,7 +75,7 @@ func Test_CreateEvents(t *testing.T) {
 					t.Fatal("insertedRowsCount scan failed")
 				}
 				if *insertedRowsCount != 1 {
-					t.Fatal("the number of inserted incoming and outvbox evets is more than 1")
+					t.Fatal("the number of inserted incoming and outbox evets is distinct than 1")
 				}
 			},
 		},
@@ -108,7 +108,56 @@ func Test_CreateEvents(t *testing.T) {
 					t.Fatal("insertedRowsCount scan failed")
 				}
 				if *insertedRowsCount != 1 {
-					t.Fatal("the number of inserted incoming and outvbox evets is more than 1")
+					t.Fatal("the number of inserted incoming and outbox evets is distinct than 1")
+				}
+			},
+		},
+		{
+			name: "rollsback when outbox event creation fails",
+			test: func(t *testing.T) {
+				ingestEvent := newEventPayload()
+				err = db.CreateEvents(ctx, ingestEvent, func(_ uuid.UUID, e *ingestevents.IngestEvent) OutboxEvent {
+					return OutboxEvent{
+						incomingEventID: uuid.UUID{},
+						eventType:       e.EventID,
+						topic:           "invalid",
+						schemaVersion:   "no schema",
+					}
+				})
+				if err == nil {
+					t.Fatalf("expecting the creation to fail")
+				}
+
+				insertedRowsCount := insertedEventsResult(ctx, pool, ingestEvent.EventID)
+				if insertedRowsCount == nil {
+					t.Fatal("insertedRowsCount scan failed")
+				}
+				if *insertedRowsCount != 0 {
+					t.Fatal("the expected insertion should be 0 when rollback happens")
+				}
+			},
+		},
+		{
+			name: "subsequent calls with distinct payload",
+			test: func(t *testing.T) {
+				t.Skip("for future validatios")
+				ingestEvent := newEventPayload()
+				err := db.CreateEvents(ctx, ingestEvent, DefaultOutboxMapper)
+				if err != nil {
+					t.Fatalf("event not created, %s", err)
+				}
+				ingestEvent.Type = "bad type"
+				err = db.CreateEvents(ctx, ingestEvent, DefaultOutboxMapper)
+				if err != nil {
+					t.Fatalf("Subsequent call failed: %s", err)
+				}
+
+				insertedRowsCount := insertedEventsResult(ctx, pool, ingestEvent.EventID)
+				if insertedRowsCount == nil {
+					t.Fatal("insertedRowsCount scan failed")
+				}
+				if *insertedRowsCount != 1 {
+					t.Fatal("the number of inserted incoming and outbox evets is distinct than 1")
 				}
 			},
 		},

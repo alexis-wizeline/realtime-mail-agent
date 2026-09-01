@@ -89,7 +89,7 @@ func createOutbocEvent(ctx context.Context, qTx *realtimemailsql.Queries, e Outb
 			},
 			IncomingEventID: pgtype.UUID{
 				Bytes: e.incomingEventID,
-				Valid: true,
+				Valid: e.incomingEventID.URN() != "",
 			},
 			EventType: e.eventType,
 			Topic:     e.topic,
