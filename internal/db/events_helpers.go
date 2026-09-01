@@ -14,10 +14,10 @@ import (
 )
 
 type OutboxEvent struct {
-	incomingEventID uuid.UUID
-	eventType       string
-	topic           string
-	schemaVersion   string
+	IncomingEventID uuid.UUID
+	EventType       string
+	Topic           string
+	SchemaVersion   string
 }
 
 func (o *OutboxEvent) serialize() ([]byte, error) {
@@ -28,10 +28,11 @@ type OutboxMapperFunc func(incomingEventID uuid.UUID, e *ingestevents.IngestEven
 
 var DefaultOutboxMapper OutboxMapperFunc = func(incomingEventID uuid.UUID, e *ingestevents.IngestEvent) OutboxEvent {
 	return OutboxEvent{
-		incomingEventID: incomingEventID,
-		eventType:       e.Type,
-		topic:           "events",
-		schemaVersion:   "1",
+		IncomingEventID: incomingEventID,
+		// TODO set these correctly
+		EventType:     e.Type,
+		Topic:         "events",
+		SchemaVersion: "1",
 	}
 }
 
@@ -67,11 +68,6 @@ func createIncomingEvent(ctx context.Context, qTx *realtimemailsql.Queries, e *i
 	return id, true, nil
 }
 
-type createOutboxEventParams struct {
-	incommingEventID uuid.UUID
-	payload          *ingestevents.IngestEvent
-}
-
 func createOutbocEvent(ctx context.Context, qTx *realtimemailsql.Queries, e OutboxEvent) error {
 	id, err := uuid.NewV7()
 	if err != nil {
@@ -88,11 +84,11 @@ func createOutbocEvent(ctx context.Context, qTx *realtimemailsql.Queries, e Outb
 				Valid: true,
 			},
 			IncomingEventID: pgtype.UUID{
-				Bytes: e.incomingEventID,
-				Valid: e.incomingEventID.URN() != "",
+				Bytes: e.IncomingEventID,
+				Valid: e.IncomingEventID.URN() != "",
 			},
-			EventType: e.eventType,
-			Topic:     e.topic,
+			EventType: e.EventType,
+			Topic:     e.Topic,
 			Payload:   buf,
 		})
 	if err != nil {

@@ -10,23 +10,28 @@ import (
 )
 
 type DB interface {
-	CreateEvents(context.Context, *ingestevents.IngestEvent, OutboxMapperFunc) error
+	CreateEvents(context.Context, *ingestevents.IngestEvent) error
 }
 
 type RealtimeMailDB struct {
-	queries *realtimemailsql.Queries
-	pool    DBX
+	queries           *realtimemailsql.Queries
+	pool              DBX
+	outboxEventMapper OutboxMapperFunc
 }
 
-func NewRealtimeMailDB(p DBX) DB {
+func NewRealtimeMailDB(p DBX, mapper OutboxMapperFunc) DB {
+	if mapper == nil {
+		mapper = DefaultOutboxMapper
+	}
 	q := realtimemailsql.New(p)
 	return &RealtimeMailDB{
-		pool:    p,
-		queries: q,
+		pool:              p,
+		queries:           q,
+		outboxEventMapper: mapper,
 	}
 }
 
-func (r *RealtimeMailDB) CreateEvents(ctx context.Context, e *ingestevents.IngestEvent, maper OutboxMapperFunc) error {
+func (r *RealtimeMailDB) CreateEvents(ctx context.Context, e *ingestevents.IngestEvent) error {
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return err
@@ -34,13 +39,13 @@ func (r *RealtimeMailDB) CreateEvents(ctx context.Context, e *ingestevents.Inges
 	defer tx.Rollback(ctx)
 	qTx := r.queries.WithTx(tx)
 	incomingEventID, created, err := createIncomingEvent(ctx, qTx, e)
-	if !created {
-		return nil
-	}
 	if err != nil {
 		return err
 	}
-	err = createOutbocEvent(ctx, qTx, maper(incomingEventID, e))
+	if !created {
+		return nil
+	}
+	err = createOutbocEvent(ctx, qTx, r.outboxEventMapper(incomingEventID, e))
 	if err != nil {
 		return err
 	}

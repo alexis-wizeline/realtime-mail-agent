@@ -33,7 +33,7 @@ func Test_CreateEvents(t *testing.T) {
 		t.Fatalf("unable to connect to db: %s", err)
 	}
 	defer finish()
-	db := &RealtimeMailDB{pool: pool, queries: queries}
+	db := &RealtimeMailDB{pool: pool, queries: queries, outboxEventMapper: DefaultOutboxMapper}
 	ctx := context.Background()
 	tcs := []struct {
 		name string
@@ -43,7 +43,7 @@ func Test_CreateEvents(t *testing.T) {
 			name: "single call save incomming and outbox events",
 			test: func(t *testing.T) {
 				ingestEvent := newEventPayload()
-				err := db.CreateEvents(ctx, ingestEvent, DefaultOutboxMapper)
+				err := db.CreateEvents(ctx, ingestEvent)
 				if err != nil {
 					t.Fatalf("event not created, %s", err)
 				}
@@ -61,11 +61,11 @@ func Test_CreateEvents(t *testing.T) {
 			name: "subsequent calls create a single event",
 			test: func(t *testing.T) {
 				ingestEvent := newEventPayload()
-				err := db.CreateEvents(ctx, ingestEvent, DefaultOutboxMapper)
+				err := db.CreateEvents(ctx, ingestEvent)
 				if err != nil {
 					t.Fatalf("event not created, %s", err)
 				}
-				err = db.CreateEvents(ctx, ingestEvent, DefaultOutboxMapper)
+				err = db.CreateEvents(ctx, ingestEvent)
 				if err != nil {
 					t.Fatalf("Subsequent call failed: %s", err)
 				}
@@ -89,7 +89,7 @@ func Test_CreateEvents(t *testing.T) {
 				for range 2 {
 					wg.Go(func() {
 						<-readyCh
-						errCh <- db.CreateEvents(ctx, ingestEvent, DefaultOutboxMapper)
+						errCh <- db.CreateEvents(ctx, ingestEvent)
 					})
 				}
 
@@ -115,26 +115,51 @@ func Test_CreateEvents(t *testing.T) {
 		{
 			name: "rollsback when outbox event creation fails",
 			test: func(t *testing.T) {
-				ingestEvent := newEventPayload()
-				err = db.CreateEvents(ctx, ingestEvent, func(_ uuid.UUID, e *ingestevents.IngestEvent) OutboxEvent {
+				currentMapper := db.outboxEventMapper
+				db.outboxEventMapper = func(_ uuid.UUID, e *ingestevents.IngestEvent) OutboxEvent {
 					return OutboxEvent{
-						incomingEventID: uuid.UUID{},
-						eventType:       e.EventID,
-						topic:           "invalid",
-						schemaVersion:   "no schema",
+						IncomingEventID: uuid.UUID{},
+						EventType:       "fail",
+						Topic:           "will fail",
+						SchemaVersion:   "bad schema",
 					}
-				})
+				}
+				ingestEvent := newEventPayload()
+				err = db.CreateEvents(ctx, ingestEvent)
 				if err == nil {
 					t.Fatalf("expecting the creation to fail")
 				}
 
-				insertedRowsCount := insertedEventsResult(ctx, pool, ingestEvent.EventID)
-				if insertedRowsCount == nil {
-					t.Fatal("insertedRowsCount scan failed")
+				incomingRow := pool.QueryRow(ctx, `
+					SELECT count(*) FROM
+					incoming_events
+					WHERE event_id = $1
+					`, ingestEvent.EventID)
+
+				count := new(int)
+				err = incomingRow.Scan(count)
+				if err != nil {
+					t.Fatalf("an error ocur while querying the incoming events count, %s", err)
 				}
-				if *insertedRowsCount != 0 {
-					t.Fatal("the expected insertion should be 0 when rollback happens")
+				if *count != 0 {
+					t.Fatal("the incoming event should rollback when outbox event creation fails")
 				}
+
+				outboxRow := pool.QueryRow(ctx, `
+					SELECT count(*) FROM
+					outbox_events
+					WHERE incoming_event_id =
+					(SELECT id FROM incoming_events WHERE event_id = $1 )
+					`, ingestEvent.EventID)
+				err = outboxRow.Scan(count)
+				if err != nil {
+					t.Fatalf("an error ocur while queryin the outbox events count: %s", err)
+				}
+				if *count != 0 {
+					t.Fatal("expectd for outbox creation to be rolledback")
+				}
+
+				db.outboxEventMapper = currentMapper
 			},
 		},
 		{
@@ -142,12 +167,12 @@ func Test_CreateEvents(t *testing.T) {
 			test: func(t *testing.T) {
 				t.Skip("for future validatios")
 				ingestEvent := newEventPayload()
-				err := db.CreateEvents(ctx, ingestEvent, DefaultOutboxMapper)
+				err := db.CreateEvents(ctx, ingestEvent)
 				if err != nil {
 					t.Fatalf("event not created, %s", err)
 				}
 				ingestEvent.Type = "bad type"
-				err = db.CreateEvents(ctx, ingestEvent, DefaultOutboxMapper)
+				err = db.CreateEvents(ctx, ingestEvent)
 				if err != nil {
 					t.Fatalf("Subsequent call failed: %s", err)
 				}

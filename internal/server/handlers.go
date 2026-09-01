@@ -4,7 +4,6 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/alexis-dragneel/realtime-mail-agent/internal/db"
 	ingestevents "github.com/alexis-dragneel/realtime-mail-agent/internal/server/models/ingest_events"
 )
 
@@ -17,7 +16,7 @@ var handlerIngestEvents serverHandler = func(s *Server) http.HandlerFunc {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		err = s.db.CreateEvents(r.Context(), event, db.DefaultOutboxMapper)
+		err = s.db.CreateEvents(r.Context(), event)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			log.Printf("error while creating events: %s", err)
