@@ -13,6 +13,7 @@ import (
 
 type DB interface {
 	CreateEvents(context.Context, *ingestevents.IngestEvent) error
+	ClaimOutboxEvents(context.Context, ClaimOutboxEventsParams) ([]realtimemailsql.OutboxEvent, error)
 }
 
 type RealtimeMailDB struct {
@@ -58,9 +59,11 @@ func (r *RealtimeMailDB) CreateEvents(ctx context.Context, e *ingestevents.Inges
 type ClaimOutboxEventsParams struct {
 	WorkerName  string
 	LockedUntil time.Time
+
+	JobsLimit int32
 }
 
-func (r *RealtimeMailDB) ClaimOutboxEvents(ctx context.Context, p ClaimOutboxEventsParams) ([]*realtimemailsql.OutboxEvent, error) {
+func (r *RealtimeMailDB) ClaimOutboxEvents(ctx context.Context, p ClaimOutboxEventsParams) ([]realtimemailsql.OutboxEvent, error) {
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return nil, err
@@ -68,7 +71,12 @@ func (r *RealtimeMailDB) ClaimOutboxEvents(ctx context.Context, p ClaimOutboxEve
 	defer tx.Rollback(ctx)
 	qTx := r.queries.WithTx(tx)
 
-	jobs, err := qTx.GetOutboxEventsToProcess(ctx, DEFAULT_JOBS_LIMIT)
+	jobsLimt := p.JobsLimit
+	if jobsLimt == 0 {
+		jobsLimt = DEFAULT_JOBS_LIMIT
+	}
+
+	jobs, err := qTx.GetOutboxEventsToProcess(ctx, jobsLimt)
 	if err != nil {
 		return nil, &DbQueryError{
 			QueryName: "GetOutboxEventsToProcess",
@@ -85,7 +93,7 @@ func (r *RealtimeMailDB) ClaimOutboxEvents(ctx context.Context, p ClaimOutboxEve
 			Time:  p.LockedUntil,
 			Valid: true,
 		},
-		Column3: jobIDs,
+		OutboxEventIds: jobIDs,
 	})
 	if err != nil {
 		return nil, &DbQueryError{
@@ -99,5 +107,5 @@ func (r *RealtimeMailDB) ClaimOutboxEvents(ctx context.Context, p ClaimOutboxEve
 		return nil, err
 	}
 
-	return nil, nil
+	return jobs, nil
 }

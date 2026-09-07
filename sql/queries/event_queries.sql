@@ -38,7 +38,7 @@ WHERE    status = 'pending'
              AND locked_until <= Now()
             )
 ORDER BY next_attempt_at, created_at
-LIMIT $1::int
+LIMIT @outbox_event_limit::int
 FOR UPDATE SKIP LOCKED;
 
 -- name: ClaimOutboxEvents :exec
@@ -48,7 +48,7 @@ locked_until = $2,
 attempts = attempts + 1,
 status = 'processing',
 updated_at = NOW()
-FROM unnest($3::UUID[]) AS ids
+FROM unnest(@outbox_event_ids::UUID[]) AS ids
 WHERE outbox_events.id = ids;
 
 -- name: MarkOutboxEventsAsFailed :exec
@@ -59,7 +59,7 @@ next_attempt_at = $2,
 updated_at = NOW(),
 locked_by = NULL,
 locked_until = NULL
-FROM unnest($3::UUID[]) AS ids
+FROM unnest(@outbox_event_ids::UUID[]) AS ids
 WHERE outbox_events.id = ids;
 
 -- name: MarkOutboxEventsAsPublished :exec
@@ -69,13 +69,13 @@ published_at = NOW(),
 updated_at = NOW(),
 locked_by = NULL,
 locked_until = NULL
-FROM unnest($1::UUID[]) AS ids
+FROM unnest(@outbox_event_ids::UUID[]) AS ids
 WHERE outbox_events.id = ids
 AND status = 'processing';
 
 -- name: SetProcessingIncomingEvent :exec
 UPDATE incoming_events
-SET status = $2,
+SET status = 'processing',
 updated_at = NOW()
-FROM unnest($1::UUID[]) AS ids
+FROM unnest(@incoming_event_ids::UUID[]) AS ids
 WHERE incoming_events.id = ids;
