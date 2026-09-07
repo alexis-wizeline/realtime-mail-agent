@@ -60,7 +60,9 @@ updated_at = NOW(),
 locked_by = NULL,
 locked_until = NULL
 FROM unnest(@outbox_event_ids::UUID[]) AS ids
-WHERE outbox_events.id = ids;
+WHERE outbox_events.id = ids
+AND status = 'processing'
+AND locked_by = @locked_by;
 
 -- name: MarkOutboxEventsAsPublished :exec
 UPDATE outbox_events
@@ -71,11 +73,4 @@ locked_by = NULL,
 locked_until = NULL
 FROM unnest(@outbox_event_ids::UUID[]) AS ids
 WHERE outbox_events.id = ids
-AND status = 'processing';
-
--- name: SetProcessingIncomingEvent :exec
-UPDATE incoming_events
-SET status = 'processing',
-updated_at = NOW()
-FROM unnest(@incoming_event_ids::UUID[]) AS ids
-WHERE incoming_events.id = ids;
+AND status = 'processing' AND locked_by = @locked_by;

@@ -63,7 +63,22 @@ type ClaimOutboxEventsParams struct {
 	JobsLimit int32
 }
 
+func (c ClaimOutboxEventsParams) Valid() error {
+	if len(c.WorkerName) == 0 {
+		return EmptyWorkerName
+	}
+	if c.LockedUntil.IsZero() {
+		return LockedTimeIsZero
+	}
+
+	return nil
+}
+
 func (r *RealtimeMailDB) ClaimOutboxEvents(ctx context.Context, p ClaimOutboxEventsParams) ([]realtimemailsql.OutboxEvent, error) {
+	err := p.Valid()
+	if err != nil {
+		return nil, err
+	}
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return nil, err
@@ -87,7 +102,7 @@ func (r *RealtimeMailDB) ClaimOutboxEvents(ctx context.Context, p ClaimOutboxEve
 	err = qTx.ClaimOutboxEvents(ctx, realtimemailsql.ClaimOutboxEventsParams{
 		LockedBy: pgtype.Text{
 			String: p.WorkerName,
-			Valid:  len(p.WorkerName) > 0,
+			Valid:  true,
 		},
 		LockedUntil: pgtype.Timestamptz{
 			Time:  p.LockedUntil,
@@ -107,5 +122,6 @@ func (r *RealtimeMailDB) ClaimOutboxEvents(ctx context.Context, p ClaimOutboxEve
 		return nil, err
 	}
 
+	// TODO: fix data to reflect current state as DB
 	return jobs, nil
 }

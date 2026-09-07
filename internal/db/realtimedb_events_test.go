@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/alexis-dragneel/realtime-mail-agent/internal/generated/realtimemailsql"
@@ -247,7 +249,13 @@ func Test_ClaimOutboxEvents(t *testing.T) {
 						mu.Unlock()
 
 						ids := outboxJobsIDs(jobs)
-						err = q.MarkOutboxEventsAsPublished(t.Context(), ids)
+						err = q.MarkOutboxEventsAsPublished(t.Context(), realtimemailsql.MarkOutboxEventsAsPublishedParams{
+							LockedBy: pgtype.Text{
+								String: key,
+								Valid:  true,
+							},
+							OutboxEventIds: ids,
+						})
 						if err != nil {
 							errChan <- err
 						}
@@ -269,9 +277,17 @@ func Test_ClaimOutboxEvents(t *testing.T) {
 				}
 
 				limitClamaibleJobs := 1
+				claimedJobs := make(map[uuid.UUID]struct{})
 				for worker, jobs := range jobsStore {
 					if len(jobs) != limitClamaibleJobs {
 						t.Fatalf("Worker: %s, Claimed: %v, Expected: %v", worker, len(jobs), limitClamaibleJobs)
+					}
+
+					for _, job := range jobs {
+						_, ok := claimedJobs[job.ID.Bytes]
+						if ok {
+							t.Fatalf("Job ID %v already claimed by other worker", job.ID)
+						}
 					}
 				}
 			},
@@ -309,6 +325,26 @@ func Test_ClaimOutboxEvents(t *testing.T) {
 					if !ok {
 						t.Fatal("Expected secodn worker to claim same jobs than first call")
 					}
+				}
+			},
+		},
+		{
+			name: "handle empty params",
+			test: func(*testing.T) {
+				_, err := db.ClaimOutboxEvents(t.Context(), ClaimOutboxEventsParams{
+					LockedUntil: time.Now(),
+				})
+				if !errors.Is(err, EmptyWorkerName) {
+					t.Fatal("expecting error to be empty worker name error")
+				}
+
+				_, err = db.ClaimOutboxEvents(t.Context(), ClaimOutboxEventsParams{
+					WorkerName:  "Valid",
+					LockedUntil: time.Time{},
+				})
+
+				if !errors.Is(err, LockedTimeIsZero) {
+					t.Fatal("expecting error to be lcoked time is zero error")
 				}
 			},
 		},
