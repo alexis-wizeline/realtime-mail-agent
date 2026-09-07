@@ -2,8 +2,10 @@ package db
 
 import (
 	"context"
+	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/alexis-dragneel/realtime-mail-agent/internal/generated/realtimemailsql"
 	ingestevents "github.com/alexis-dragneel/realtime-mail-agent/internal/server/models/ingest_events"
@@ -11,6 +13,7 @@ import (
 
 type DB interface {
 	CreateEvents(context.Context, *ingestevents.IngestEvent) error
+	ClaimOutboxEvents(context.Context, ClaimOutboxEventsParams) ([]realtimemailsql.OutboxEvent, error)
 }
 
 type RealtimeMailDB struct {
@@ -51,4 +54,74 @@ func (r *RealtimeMailDB) CreateEvents(ctx context.Context, e *ingestevents.Inges
 	}
 
 	return tx.Commit(ctx)
+}
+
+type ClaimOutboxEventsParams struct {
+	WorkerName  string
+	LockedUntil time.Time
+
+	JobsLimit int32
+}
+
+func (c ClaimOutboxEventsParams) Valid() error {
+	if len(c.WorkerName) == 0 {
+		return EmptyWorkerName
+	}
+	if c.LockedUntil.IsZero() {
+		return LockedTimeIsZero
+	}
+
+	return nil
+}
+
+func (r *RealtimeMailDB) ClaimOutboxEvents(ctx context.Context, p ClaimOutboxEventsParams) ([]realtimemailsql.OutboxEvent, error) {
+	err := p.Valid()
+	if err != nil {
+		return nil, err
+	}
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	qTx := r.queries.WithTx(tx)
+
+	jobsLimt := p.JobsLimit
+	if jobsLimt == 0 {
+		jobsLimt = DEFAULT_JOBS_LIMIT
+	}
+
+	jobs, err := qTx.GetOutboxEventsToProcess(ctx, jobsLimt)
+	if err != nil {
+		return nil, &DbQueryError{
+			QueryName: "GetOutboxEventsToProcess",
+			Err:       err,
+		}
+	}
+	jobIDs := outboxJobsIDs(jobs)
+	err = qTx.ClaimOutboxEvents(ctx, realtimemailsql.ClaimOutboxEventsParams{
+		LockedBy: pgtype.Text{
+			String: p.WorkerName,
+			Valid:  true,
+		},
+		LockedUntil: pgtype.Timestamptz{
+			Time:  p.LockedUntil,
+			Valid: true,
+		},
+		OutboxEventIds: jobIDs,
+	})
+	if err != nil {
+		return nil, &DbQueryError{
+			QueryName: "ClaimOutboxEvents",
+			Err:       err,
+		}
+	}
+
+	err = tx.Commit(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO: fix data to reflect current state as DB
+	return jobs, nil
 }

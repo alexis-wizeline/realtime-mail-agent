@@ -13,6 +13,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const DEFAULT_JOBS_LIMIT = 100
+
 type OutboxEvent struct {
 	IncomingEventID uuid.UUID
 	EventType       string
@@ -62,7 +64,10 @@ func createIncomingEvent(ctx context.Context, qTx *realtimemailsql.Queries, e *i
 			// TODO validate if the payload is malformed
 			return uuid.UUID{}, false, nil
 		}
-		return uuid.UUID{}, false, err
+		return uuid.UUID{}, false, &DbQueryError{
+			QueryName: "CreateIncomingEvent",
+			Err:       err,
+		}
 	}
 
 	return id, true, nil
@@ -92,8 +97,20 @@ func createOutboxEvent(ctx context.Context, qTx *realtimemailsql.Queries, e Outb
 			Payload:   buf,
 		})
 	if err != nil {
-		return err
+		return &DbQueryError{
+			QueryName: "CreateOutboxEvent",
+			Err:       err,
+		}
 	}
 
 	return nil
+}
+
+func outboxJobsIDs(jobs []realtimemailsql.OutboxEvent) []pgtype.UUID {
+	ids := make([]pgtype.UUID, len(jobs))
+	for i, job := range jobs {
+		ids[i] = job.ID
+	}
+
+	return ids
 }
