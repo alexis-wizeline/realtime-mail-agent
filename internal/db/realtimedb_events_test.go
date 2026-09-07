@@ -249,7 +249,7 @@ func Test_ClaimOutboxEvents(t *testing.T) {
 						mu.Unlock()
 
 						ids := outboxJobsIDs(jobs)
-						_, err = q.MarkOutboxEventsAsPublished(t.Context(), realtimemailsql.MarkOutboxEventsAsPublishedParams{
+						totalRows, err := q.MarkOutboxEventsAsPublished(t.Context(), realtimemailsql.MarkOutboxEventsAsPublishedParams{
 							LockedBy: pgtype.Text{
 								String: key,
 								Valid:  true,
@@ -258,6 +258,10 @@ func Test_ClaimOutboxEvents(t *testing.T) {
 						})
 						if err != nil {
 							errChan <- err
+							return
+						}
+						if totalRows != int64(len(ids)) {
+							errChan <- fmt.Errorf("the marketed jobs as published are not matching want: %v, got: %v", len(ids), totalRows)
 						}
 					})
 				}
