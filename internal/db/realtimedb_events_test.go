@@ -249,7 +249,7 @@ func Test_ClaimOutboxEvents(t *testing.T) {
 						mu.Unlock()
 
 						ids := outboxJobsIDs(jobs)
-						err = q.MarkOutboxEventsAsPublished(t.Context(), realtimemailsql.MarkOutboxEventsAsPublishedParams{
+						_, err = q.MarkOutboxEventsAsPublished(t.Context(), realtimemailsql.MarkOutboxEventsAsPublishedParams{
 							LockedBy: pgtype.Text{
 								String: key,
 								Valid:  true,
@@ -288,6 +288,7 @@ func Test_ClaimOutboxEvents(t *testing.T) {
 						if ok {
 							t.Fatalf("Job ID %v already claimed by other worker", job.ID)
 						}
+						claimedJobs[job.ID.Bytes] = struct{}{}
 					}
 				}
 			},
@@ -312,19 +313,36 @@ func Test_ClaimOutboxEvents(t *testing.T) {
 				for _, job := range workerJobs {
 					workerOneMap[job.ID.Bytes] = struct{}{}
 				}
+				lastWorkername := "worker_2"
 				workerJobs, err = db.ClaimOutboxEvents(t.Context(), ClaimOutboxEventsParams{
-					WorkerName:  "worker_2",
+					WorkerName:  lastWorkername,
 					LockedUntil: time.Now(),
 					JobsLimit:   5,
 				})
 				if err != nil {
 					t.Fatalf("Unbale to claim jobs for second worker: %s", err.Error())
 				}
-				for _, job := range workerJobs {
+				ids := make([]pgtype.UUID, len(workerJobs))
+				for i, job := range workerJobs {
 					_, ok := workerOneMap[job.ID.Bytes]
 					if !ok {
-						t.Fatal("Expected secodn worker to claim same jobs than first call")
+						t.Fatal("Expected second worker to claim same jobs than first call")
 					}
+					ids[i] = job.ID
+				}
+
+				totalRows, err := q.MarkOutboxEventsAsPublished(t.Context(), realtimemailsql.MarkOutboxEventsAsPublishedParams{
+					OutboxEventIds: ids,
+					LockedBy: pgtype.Text{
+						String: lastWorkername,
+						Valid:  true,
+					},
+				})
+				if err != nil {
+					t.Fatalf("Unable to clean jobs by mark as publish: %err", err)
+				}
+				if totalRows != int64(len(workerJobs)) {
+					t.Fatalf("The amount of jobs markes as published does not match: expect %v, got: %v", len(workerJobs), totalRows)
 				}
 			},
 		},

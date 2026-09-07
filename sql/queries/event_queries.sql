@@ -51,7 +51,7 @@ updated_at = NOW()
 FROM unnest(@outbox_event_ids::UUID[]) AS ids
 WHERE outbox_events.id = ids;
 
--- name: MarkOutboxEventsAsFailed :exec
+-- name: MarkOutboxEventsAsFailed :execrows
 UPDATE outbox_events
 SET status = 'failed',
 last_error = $1,
@@ -64,7 +64,7 @@ WHERE outbox_events.id = ids
 AND status = 'processing'
 AND locked_by = @locked_by;
 
--- name: MarkOutboxEventsAsPublished :exec
+-- name: MarkOutboxEventsAsPublished :execrows
 UPDATE outbox_events
 SET status = 'published',
 published_at = NOW(),
