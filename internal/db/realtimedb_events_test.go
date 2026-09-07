@@ -420,16 +420,6 @@ func setUpEvents(ctx context.Context, db DB, num int) error {
 }
 
 func cleanUpJobs(ctx context.Context, p *pgxpool.Pool) error {
-	incoming, err := p.Query(ctx, "DELETE FROM incoming_events;")
-	defer func() {
-		if incoming == nil {
-			return
-		}
-		incoming.Close()
-	}()
-	if err != nil {
-		return err
-	}
 	rows, err := p.Query(ctx, "DELETE FROM outbox_events;")
 	if err != nil {
 		return err
@@ -440,5 +430,15 @@ func cleanUpJobs(ctx context.Context, p *pgxpool.Pool) error {
 		}
 		rows.Close()
 	}()
+	incoming, err := p.Query(ctx, "DELETE FROM incoming_events;")
+	defer func() {
+		if incoming == nil {
+			return
+		}
+		incoming.Close()
+	}()
+	if err != nil {
+		return err
+	}
 	return nil
 }
