@@ -24,7 +24,7 @@ $1, $2, $3, $4, $5
 
 
 -- name: GetOutboxEventsToProcess :many
-SELECT   *
+SELECT   id
 FROM     outbox_events
 WHERE    status = 'pending'
          OR (status = 'failed'
@@ -41,7 +41,7 @@ ORDER BY next_attempt_at, created_at
 LIMIT @outbox_event_limit::int
 FOR UPDATE SKIP LOCKED;
 
--- name: ClaimOutboxEvents :exec
+-- name: ClaimOutboxEvents :many
 UPDATE outbox_events
 SET locked_by = $1,
 locked_until = $2,
@@ -49,7 +49,8 @@ attempts = attempts + 1,
 status = 'processing',
 updated_at = NOW()
 FROM unnest(@outbox_event_ids::UUID[]) AS ids
-WHERE outbox_events.id = ids;
+WHERE outbox_events.id = ids
+RETURNING outbox_events.*;
 
 -- name: MarkOutboxEventsAsFailed :execrows
 UPDATE outbox_events
