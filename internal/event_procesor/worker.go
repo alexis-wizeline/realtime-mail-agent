@@ -46,8 +46,8 @@ import (
 //
 
 const (
-	newtWorkBackoffSec   = 120
 	nextAttempBackoffSec = 60
+	defaultJitter        = 20
 )
 
 type worker struct {
@@ -59,14 +59,12 @@ type worker struct {
 	eventLimit       int
 	leaseDurationSec int
 
-	intervalSec          int64
-	jitter               int64
-	backOffSec           int64
-	maxNetworkErrorRetry int64
+	intervalSec int64
+	jitter      int64
+	backOffSec  int64
 }
 
 func (w *worker) work(ctx context.Context) {
-
 	timer := time.NewTimer(time.Hour)
 	defer timer.Stop()
 
@@ -95,7 +93,8 @@ func (w *worker) work(ctx context.Context) {
 			select {
 			case <-timer.C:
 				continue
-			default:
+			case <-ctx.Done():
+				return
 			}
 		}
 		w.handleEvents(ctx, events)
@@ -131,7 +130,7 @@ func (w *worker) handleEvents(ctx context.Context, events []realtimemailsql.Outb
 		}
 		err := w.p.Process(ctx, job)
 		if err != nil {
-			w.failure(ctx, job, err, true)
+			w.failure(ctx, event, err)
 			continue
 		}
 		w.success(ctx, event.ID.Bytes)
@@ -153,70 +152,51 @@ func (w *worker) success(ctx context.Context, eventID uuid.UUID) {
 }
 
 // TODO: change slog for w.log
-func (w *worker) failure(ctx context.Context, job processors.Job, err error, retry bool) {
-	if errors.Is(err, processors.RetriableError) && retry {
-		w.retry(ctx, job)
-		return
+func (w *worker) failure(ctx context.Context, event realtimemailsql.OutboxEvent, err error) {
+	var marked bool
+	var queryErr error
+	if retryEvent(event, err) {
+		marked, queryErr = w.db.MarkOutboxEventAsDiscarded(ctx, db.FailedEventParams{
+			EventID:  event.ID.Bytes,
+			WorkerID: w.id,
+			Err:      err,
+		})
+	} else {
+		marked, queryErr = w.db.MarkOutboxEventAsFailed(ctx, db.FailedEventParams{
+			EventID:      event.ID.Bytes,
+			WorkerID:     w.id,
+			Err:          err,
+			NextAttempAt: time.Now().Add(nextAttempBackoffSec * time.Second),
+		})
 	}
 
-	marked, err := w.db.MarkOutboxEventAsFailed(ctx, db.MarkOutboxEventAsFailedParams{
-		EventID:      job.ID,
-		WorkerID:     w.id,
-		Err:          err,
-		NextAttempAt: time.Now().Add(nextAttempBackoffSec * time.Second),
-	})
-	if err != nil {
-		slog.Error("failure: failed in the db", "event_id", job.ID, "error", err)
+	if queryErr != nil {
+		slog.Error("failure: failed in the db", "event_id", event.ID, "error", queryErr)
 		return
 	}
 	if !marked {
-		slog.Error("failure: failed event not marked", "event_id", job.ID)
+		slog.Error("failure: failed event not marked", "event_id", event.ID)
 		return
 	}
-	slog.Info("failure: event marked", "event_id", job.ID)
-}
-
-// TODO: change slog for w.log
-func (w *worker) retry(ctx context.Context, job processors.Job) {
-	timer := time.NewTimer(time.Hour)
-	defer timer.Stop()
-	for attemps := 0; attemps < int(w.maxNetworkErrorRetry); attemps++ {
-		timer.Reset(w.retryBackoff(attemps))
-		select {
-		case <-timer.C:
-		case <-ctx.Done():
-			slog.Info("retry: cancelled", "event_id", job.ID)
-			return
-		}
-
-		err := w.p.Process(ctx, job)
-		if err != nil {
-			if !errors.Is(err, processors.RetriableError) || attemps == int(w.maxNetworkErrorRetry)-1 {
-				w.failure(ctx, job, err, false)
-				break
-			}
-			slog.Error("retry: failed", "event_id", job.ID, "attemp", attemps, "max_attemps", w.maxNetworkErrorRetry)
-			continue
-		}
-		w.success(ctx, job.ID)
-		break
-	}
+	slog.Info("failure: event marked", "event_id", event.ID)
 }
 
 func (w *worker) nextIterationAt() time.Duration {
-	r := rand.New(rand.NewSource(time.Now().Unix()))
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	if w.jitter <= 0 {
+		w.jitter = defaultJitter
+	}
 	next := (w.intervalSec + r.Int63n(int64(w.jitter))) * int64(time.Second)
 	return time.Duration(next)
 }
 
-func (w *worker) retryBackoff(attemp int) time.Duration {
-	base := 100 * time.Millisecond
-	max := time.Duration(w.backOffSec) * time.Second
-
-	duration := time.Duration(1<<attemp) * base
-	if duration > max {
-		return max
+func retryEvent(e realtimemailsql.OutboxEvent, err error) bool {
+	var processError processors.ProcessError
+	if errors.As(err, &processError) &&
+		processError.Retry() &&
+		e.Attempts < e.MaxAttempts {
+		return true
 	}
 
-	return duration
+	return false
 }

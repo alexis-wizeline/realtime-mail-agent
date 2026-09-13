@@ -75,3 +75,14 @@ locked_until = NULL
 FROM unnest(@outbox_event_ids::UUID[]) AS ids
 WHERE outbox_events.id = ids
 AND status = 'processing' AND locked_by = @locked_by;
+
+-- name: MarkOutboxEventAsDiscarded :execrows
+UPDATE outbox_events
+SET status = 'discarded',
+updated_at = NOW(),
+last_error = @last_error,
+locked_by = NULL,
+locked_until = NULL
+WHERE outbox_events.id = @outbox_event_id
+AND status = 'processing'
+AND locked_by = @locked_by;

@@ -2,16 +2,22 @@ package processors
 
 import (
 	"context"
-	"errors"
 
 	"github.com/google/uuid"
 )
 
-var (
-	// TODO: make correct errors and retry mechanism
-	RetriableError    = errors.New("retry")
-	NonRetriableError = errors.New("no retry")
-)
+type ProcessError struct {
+	err error
+}
+
+func (p ProcessError) Error() string {
+	return p.err.Error()
+}
+
+// TODO: Handle this correctly
+func (p ProcessError) Retry() bool {
+	return true
+}
 
 type Processor interface {
 	Process(context.Context, Job) error

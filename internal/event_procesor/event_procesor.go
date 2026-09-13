@@ -11,5 +11,6 @@ import (
 type processorDB interface {
 	ClaimOutboxEvents(context.Context, db.ClaimOutboxEventsParams) ([]realtimemailsql.OutboxEvent, error)
 	MarkOutboxEventAsPublished(context.Context, uuid.UUID, uuid.UUID) (bool, error)
-	MarkOutboxEventAsFailed(context.Context, db.MarkOutboxEventAsFailedParams) (bool, error)
+	MarkOutboxEventAsFailed(context.Context, db.FailedEventParams) (bool, error)
+	MarkOutboxEventAsDiscarded(context.Context, db.FailedEventParams) (bool, error)
 }

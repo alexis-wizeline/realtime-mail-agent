@@ -17,7 +17,8 @@ type DB interface {
 	CreateEvents(context.Context, *ingestevents.IngestEvent) error
 	ClaimOutboxEvents(context.Context, ClaimOutboxEventsParams) ([]realtimemailsql.OutboxEvent, error)
 	MarkOutboxEventAsPublished(context.Context, uuid.UUID, uuid.UUID) (bool, error)
-	MarkOutboxEventAsFailed(context.Context, MarkOutboxEventAsFailedParams) (bool, error)
+	MarkOutboxEventAsFailed(context.Context, FailedEventParams) (bool, error)
+	MarkOutboxEventAsDiscarded(context.Context, FailedEventParams) (bool, error)
 }
 
 type RealtimeMailDB struct {
@@ -155,18 +156,14 @@ func (r *RealtimeMailDB) MarkOutboxEventAsPublished(ctx context.Context, eventID
 	return rows == 1, nil
 }
 
-type MarkOutboxEventAsFailedParams struct {
+type FailedEventParams struct {
 	EventID      uuid.UUID
 	WorkerID     uuid.UUID
 	Err          error
 	NextAttempAt time.Time
 }
 
-func (m *MarkOutboxEventAsFailedParams) valid() error {
-	err := uuid.Validate(m.EventID.String())
-	if err != nil {
-		return err
-	}
+func (m *FailedEventParams) valid() error {
 	if m.Err == nil {
 		return NilEventErr
 	}
@@ -176,7 +173,7 @@ func (m *MarkOutboxEventAsFailedParams) valid() error {
 	return nil
 }
 
-func (r *RealtimeMailDB) MarkOutboxEventAsFailed(ctx context.Context, p MarkOutboxEventAsFailedParams) (bool, error) {
+func (r *RealtimeMailDB) MarkOutboxEventAsFailed(ctx context.Context, p FailedEventParams) (bool, error) {
 	err := p.valid()
 	if err != nil {
 		return false, err
@@ -210,4 +207,26 @@ func (r *RealtimeMailDB) MarkOutboxEventAsFailed(ctx context.Context, p MarkOutb
 	}
 
 	return rows == 1, nil
+}
+
+func (r *RealtimeMailDB) MarkOutboxEventAsDiscarded(ctx context.Context, p FailedEventParams) (bool, error) {
+	rows, err := r.queries.MarkOutboxEventAsDiscarded(ctx, realtimemailsql.MarkOutboxEventAsDiscardedParams{
+		OutboxEventID: pgtype.UUID{
+			Bytes: p.EventID,
+			Valid: true,
+		},
+		LastError: pgtype.Text{
+			String: p.Err.Error(),
+			Valid:  true,
+		},
+		LockedBy: pgtype.Text{
+			String: p.WorkerID.String(),
+			Valid:  true,
+		},
+	})
+	if err != nil {
+		return false, err
+	}
+
+	return rows == int64(1), nil
 }
