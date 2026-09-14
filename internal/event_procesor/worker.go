@@ -1,0 +1,202 @@
+package eventprocesor
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"math/rand"
+	"time"
+
+	"github.com/alexis-dragneel/realtime-mail-agent/internal/db"
+	"github.com/alexis-dragneel/realtime-mail-agent/internal/event_procesor/processors"
+	"github.com/alexis-dragneel/realtime-mail-agent/internal/generated/realtimemailsql"
+	"github.com/google/uuid"
+)
+
+////
+// worker
+// id (UUID) - identifier bets if is unique
+//
+// db - it would call to get the amount of jobs to process
+// processor - and interface that contains the logic to process the jobs
+//
+// eventLimit <- the number of jobs to process each run
+//
+// intervalSec - every time the process should work
+// jitter - to spread the runs and avoid call ovehead to the db
+//
+// fields that are to consider
+// statusCh bool - to report to the pool that the job is still working
+// ???
+//
+//
+// What a worker does?
+// first pass
+// work(context) <- do the work
+// 		1.- get jobs
+//      2.- call processor.Process(job) get an err
+//      3.- err null? no - send to published, yes - sedn to failed with err (probably another PR to make batch queries into single job query?)
+// future consideration?
+// start(ctx) <- init backfround jobs for work(ctx) and beat()
+// 		work(ctx) <- same as before
+// 		beat() <- reports to the pool that is still alive so it can refresh unfinished jobs
+// 			- single action after interval statusCh<-true but biggest question how should handle dead?
+//
+// to handle retries in the process we should do go processor.process(ctx, e) and report throuhg a channel succes or failure proabbaly 2 chanels not ablocker in a first iteration
+//
+
+const (
+	nextAttempBackoffSec = 60
+	defaultJitter        = 20
+)
+
+type worker struct {
+	id uuid.UUID
+
+	db processorDB
+	p  processors.Processor
+
+	eventLimit       int
+	leaseDurationSec int
+
+	intervalSec int64
+	jitter      int64
+	backOffSec  int64
+}
+
+func (w *worker) work(ctx context.Context) {
+	timer := time.NewTimer(time.Hour)
+	defer timer.Stop()
+
+	for {
+		// get jobs
+		events, err := w.db.ClaimOutboxEvents(ctx, db.ClaimOutboxEventsParams{
+			WorkerName:  w.id.String(),
+			JobsLimit:   int32(w.eventLimit),
+			LockedUntil: time.Now().Add(time.Duration(w.leaseDurationSec) * time.Second),
+		})
+		if err != nil || len(events) == 0 {
+			if err != nil {
+				// TODO once we have a logger we use w.logger instead
+				slog.Error("worker failed to get jobs", "worker_id", w.id, "error", err)
+			}
+
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+
+			timer.Reset(time.Duration(w.backOffSec) * time.Second)
+
+			select {
+			case <-timer.C:
+				continue
+			case <-ctx.Done():
+				return
+			}
+		}
+		w.handleEvents(ctx, events)
+
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+
+		timer.Reset(w.nextIterationAt())
+
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func (w *worker) handleEvents(ctx context.Context, events []realtimemailsql.OutboxEvent) {
+	if len(events) == 0 {
+		return
+	}
+
+	for _, event := range events {
+		job := processors.Job{
+			ID:        event.ID.Bytes,
+			EventType: event.EventType,
+			Topic:     event.Topic,
+			Payload:   event.Payload,
+		}
+		err := w.p.Process(ctx, job)
+		if err != nil {
+			w.failure(ctx, event, err)
+			continue
+		}
+		w.success(ctx, event.ID.Bytes)
+	}
+}
+
+// TODO: change slog for w.log
+func (w *worker) success(ctx context.Context, eventID uuid.UUID) {
+	marked, err := w.db.MarkOutboxEventAsPublished(ctx, eventID, w.id)
+	if err != nil {
+		slog.Error("success: failed for db error", "event_id", eventID, "error", err)
+		return
+	}
+	if !marked {
+		slog.Error("success: failed event db record not changed", "event_id", eventID)
+		return
+	}
+	slog.Info("success: event updated", "event_id", eventID)
+}
+
+// TODO: change slog for w.log
+func (w *worker) failure(ctx context.Context, event realtimemailsql.OutboxEvent, err error) {
+	var marked bool
+	var queryErr error
+	if retryEvent(event, err) {
+		marked, queryErr = w.db.MarkOutboxEventAsDiscarded(ctx, db.FailedEventParams{
+			EventID:  event.ID.Bytes,
+			WorkerID: w.id,
+			Err:      err,
+		})
+	} else {
+		marked, queryErr = w.db.MarkOutboxEventAsFailed(ctx, db.FailedEventParams{
+			EventID:      event.ID.Bytes,
+			WorkerID:     w.id,
+			Err:          err,
+			NextAttempAt: time.Now().Add(nextAttempBackoffSec * time.Second),
+		})
+	}
+
+	if queryErr != nil {
+		slog.Error("failure: failed in the db", "event_id", event.ID, "error", queryErr)
+		return
+	}
+	if !marked {
+		slog.Error("failure: failed event not marked", "event_id", event.ID)
+		return
+	}
+	slog.Info("failure: event marked", "event_id", event.ID)
+}
+
+func (w *worker) nextIterationAt() time.Duration {
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	if w.jitter <= 0 {
+		w.jitter = defaultJitter
+	}
+	next := (w.intervalSec + r.Int63n(int64(w.jitter))) * int64(time.Second)
+	return time.Duration(next)
+}
+
+func retryEvent(e realtimemailsql.OutboxEvent, err error) bool {
+	var processError processors.ProcessError
+	if errors.As(err, &processError) &&
+		processError.Retry() &&
+		e.Attempts < e.MaxAttempts {
+		return true
+	}
+
+	return false
+}

@@ -24,7 +24,7 @@ CREATE TABLE outbox_events(
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     published_at TIMESTAMPTZ NULL,
 
-    CONSTRAINT outbox_events_status_check CHECK (status IN ('pending', 'processing', 'published', 'failed')),
+    CONSTRAINT outbox_events_status_check CHECK (status IN ('pending', 'processing', 'published', 'failed', 'discarded')),
     CONSTRAINT outbox_check_events_attempts CHECK (attempts >= 0),
     CONSTRAINT outbox_event_max_attempts_check CHECK (max_attempts > 0)
 );
