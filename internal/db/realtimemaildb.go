@@ -225,7 +225,10 @@ func (r *RealtimeMailDB) MarkOutboxEventAsDiscarded(ctx context.Context, p Faile
 		},
 	})
 	if err != nil {
-		return false, err
+		return false, &DbQueryError{
+			QueryName: "MarkOutboxEventAsDiscarded",
+			Err:       err,
+		}
 	}
 
 	return rows == int64(1), nil
