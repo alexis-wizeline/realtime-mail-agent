@@ -156,17 +156,17 @@ func (w *worker) failure(ctx context.Context, event realtimemailsql.OutboxEvent,
 	var marked bool
 	var queryErr error
 	if retryEvent(event, err) {
-		marked, queryErr = w.db.MarkOutboxEventAsDiscarded(ctx, db.FailedEventParams{
-			EventID:  event.ID.Bytes,
-			WorkerID: w.id,
-			Err:      err,
-		})
-	} else {
 		marked, queryErr = w.db.MarkOutboxEventAsFailed(ctx, db.FailedEventParams{
 			EventID:      event.ID.Bytes,
 			WorkerID:     w.id,
 			Err:          err,
 			NextAttempAt: time.Now().Add(nextAttempBackoffSec * time.Second),
+		})
+	} else {
+		marked, queryErr = w.db.MarkOutboxEventAsDiscarded(ctx, db.FailedEventParams{
+			EventID:  event.ID.Bytes,
+			WorkerID: w.id,
+			Err:      err,
 		})
 	}
 
@@ -193,7 +193,7 @@ func (w *worker) nextIterationAt() time.Duration {
 func retryEvent(e realtimemailsql.OutboxEvent, err error) bool {
 	var processError processors.ProcessError
 	if errors.As(err, &processError) &&
-		processError.Retry() &&
+		processError.Retriable() &&
 		e.Attempts < e.MaxAttempts {
 		return true
 	}

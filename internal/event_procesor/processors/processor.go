@@ -7,16 +7,17 @@ import (
 )
 
 type ProcessError struct {
-	err error
+	Err   error
+	Retry bool
 }
 
 func (p ProcessError) Error() string {
-	return p.err.Error()
+	return p.Err.Error()
 }
 
 // TODO: Handle this correctly
-func (p ProcessError) Retry() bool {
-	return true
+func (p ProcessError) Retriable() bool {
+	return p.Retry
 }
 
 type Processor interface {
