@@ -75,10 +75,10 @@ func Test_worker_work(t *testing.T) {
 
 				mockP := &mockProcessor{processed: 0}
 
-				worker := &worker{
-					id: uuid.New(),
-					db: db,
-					p:  mockP,
+				worker := &eventWorker{
+					id:        uuid.New(),
+					db:        db,
+					processor: mockP,
 
 					eventLimit:       10,
 					leaseDurationSec: 30 * 60,
@@ -134,10 +134,10 @@ func Test_worker_work(t *testing.T) {
 
 				mockP := &mockProcessor{processed: 0}
 
-				worker := &worker{
-					id: uuid.New(),
-					db: db,
-					p:  mockP,
+				worker := &eventWorker{
+					id:        uuid.New(),
+					db:        db,
+					processor: mockP,
 
 					eventLimit:       10,
 					leaseDurationSec: 30 * 60,
@@ -198,10 +198,10 @@ func Test_worker_work(t *testing.T) {
 					Retry: true,
 				}}
 
-				worker := &worker{
-					id: uuid.New(),
-					db: db,
-					p:  mockP,
+				worker := &eventWorker{
+					id:        uuid.New(),
+					db:        db,
+					processor: mockP,
 
 					eventLimit:       10,
 					leaseDurationSec: 30 * 60,
@@ -259,10 +259,10 @@ func Test_worker_work(t *testing.T) {
 					Retry: false,
 				}}
 
-				worker := &worker{
-					id: uuid.New(),
-					db: db,
-					p:  mockP,
+				worker := &eventWorker{
+					id:        uuid.New(),
+					db:        db,
+					processor: mockP,
 
 					eventLimit:       10,
 					leaseDurationSec: 30 * 60,
@@ -322,10 +322,10 @@ func Test_worker_work(t *testing.T) {
 					Retry: true,
 				}}
 
-				worker := &worker{
-					id: uuid.New(),
-					db: db,
-					p:  mockP,
+				worker := &eventWorker{
+					id:        uuid.New(),
+					db:        db,
+					processor: mockP,
 
 					eventLimit:       10,
 					leaseDurationSec: 30 * 60,

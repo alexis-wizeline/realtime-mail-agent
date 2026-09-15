@@ -50,11 +50,24 @@ const (
 	defaultJitter        = 20
 )
 
-type worker struct {
+var (
+	WorkerDBNilErr             = errors.New("the database for the worker can not be nil")
+	WorkerProcessorNilErr      = errors.New("the processor for the worker can not be nil")
+	WorkerEventLimitZeroErr    = errors.New("the event limit for the worker must be higher than zero")
+	WorkerLeaseDurationZeroErr = errors.New("the lease duration for the worker must be higher than zero")
+	WorkerIntervalSecZeroErr   = errors.New("the interval for the worker must be higher than zero")
+	WorkerBackOffSecZeroErr    = errors.New("the backoff retry for the worker needs to be higher than zero")
+)
+
+type worker interface {
+	work(context.Context)
+}
+
+type eventWorker struct {
 	id uuid.UUID
 
-	db processorDB
-	p  processors.Processor
+	db        processorDB
+	processor processors.Processor
 
 	eventLimit       int
 	leaseDurationSec int
@@ -64,7 +77,65 @@ type worker struct {
 	backOffSec  int64
 }
 
-func (w *worker) work(ctx context.Context) {
+type workerEventSettings struct {
+	db        processorDB
+	processor processors.Processor
+
+	eventLimit       int
+	leaseDurationSec int
+
+	intervalSec int64
+	jitter      int64
+	backoffSec  int64
+}
+
+func (w workerEventSettings) valid() error {
+	if w.db == nil {
+		return WorkerDBNilErr
+	}
+	if w.processor == nil {
+		return WorkerProcessorNilErr
+	}
+	if w.eventLimit <= 0 {
+		return WorkerEventLimitZeroErr
+	}
+	if w.leaseDurationSec <= 0 {
+		return WorkerLeaseDurationZeroErr
+	}
+	if w.intervalSec <= 0 {
+		return WorkerIntervalSecZeroErr
+	}
+	if w.backoffSec <= 0 {
+		return WorkerBackOffSecZeroErr
+	}
+	return nil
+}
+
+func newEventWorker(s workerEventSettings) (worker, error) {
+	err := s.valid()
+	if err != nil {
+		return nil, err
+	}
+	jiter := s.jitter
+	if jiter <= 0 {
+		jiter = defaultJitter
+	}
+	return &eventWorker{
+		id: uuid.New(),
+
+		db:        s.db,
+		processor: s.processor,
+
+		eventLimit:       s.eventLimit,
+		leaseDurationSec: s.leaseDurationSec,
+
+		intervalSec: s.intervalSec,
+		jitter:      jiter,
+		backOffSec:  s.backoffSec,
+	}, nil
+}
+
+func (w *eventWorker) work(ctx context.Context) {
 	timer := time.NewTimer(time.Hour)
 	defer timer.Stop()
 
@@ -116,7 +187,7 @@ func (w *worker) work(ctx context.Context) {
 	}
 }
 
-func (w *worker) handleEvents(ctx context.Context, events []realtimemailsql.OutboxEvent) {
+func (w *eventWorker) handleEvents(ctx context.Context, events []realtimemailsql.OutboxEvent) {
 	if len(events) == 0 {
 		return
 	}
@@ -128,7 +199,7 @@ func (w *worker) handleEvents(ctx context.Context, events []realtimemailsql.Outb
 			Topic:     event.Topic,
 			Payload:   event.Payload,
 		}
-		err := w.p.Process(ctx, job)
+		err := w.processor.Process(ctx, job)
 		if err != nil {
 			w.failure(ctx, event, err)
 			continue
@@ -138,7 +209,7 @@ func (w *worker) handleEvents(ctx context.Context, events []realtimemailsql.Outb
 }
 
 // TODO: change slog for w.log
-func (w *worker) success(ctx context.Context, eventID uuid.UUID) {
+func (w *eventWorker) success(ctx context.Context, eventID uuid.UUID) {
 	marked, err := w.db.MarkOutboxEventAsPublished(ctx, eventID, w.id)
 	if err != nil {
 		slog.Error("success: failed for db error", "event_id", eventID, "error", err)
@@ -152,7 +223,7 @@ func (w *worker) success(ctx context.Context, eventID uuid.UUID) {
 }
 
 // TODO: change slog for w.log
-func (w *worker) failure(ctx context.Context, event realtimemailsql.OutboxEvent, err error) {
+func (w *eventWorker) failure(ctx context.Context, event realtimemailsql.OutboxEvent, err error) {
 	var marked bool
 	var queryErr error
 	if retryEvent(event, err) {
@@ -181,11 +252,8 @@ func (w *worker) failure(ctx context.Context, event realtimemailsql.OutboxEvent,
 	slog.Info("failure: event marked", "event_id", event.ID)
 }
 
-func (w *worker) nextIterationAt() time.Duration {
+func (w *eventWorker) nextIterationAt() time.Duration {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	if w.jitter <= 0 {
-		w.jitter = defaultJitter
-	}
 	next := (w.intervalSec + r.Int63n(int64(w.jitter))) * int64(time.Second)
 	return time.Duration(next)
 }
