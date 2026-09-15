@@ -32,7 +32,7 @@ WHERE    status = 'pending'
              AND next_attempt_at <= Now())
          OR (
          status = 'processing'
-         AND attempts < max_attempts
+         AND attempts <= max_attempts
              AND
          locked_until IS NOT NULL
              AND locked_until <= Now()

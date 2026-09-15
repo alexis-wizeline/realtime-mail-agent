@@ -18,7 +18,7 @@ type DB interface {
 	ClaimOutboxEvents(context.Context, ClaimOutboxEventsParams) ([]realtimemailsql.OutboxEvent, error)
 	MarkOutboxEventAsPublished(context.Context, uuid.UUID, uuid.UUID) (bool, error)
 	MarkOutboxEventAsFailed(context.Context, FailedEventParams) (bool, error)
-	MarkOutboxEventAsDiscarded(context.Context, FailedEventParams) (bool, error)
+	MarkOutboxEventAsDiscarded(context.Context, DiscardedEventParams) (bool, error)
 }
 
 type RealtimeMailDB struct {
@@ -209,7 +209,24 @@ func (r *RealtimeMailDB) MarkOutboxEventAsFailed(ctx context.Context, p FailedEv
 	return rows == 1, nil
 }
 
-func (r *RealtimeMailDB) MarkOutboxEventAsDiscarded(ctx context.Context, p FailedEventParams) (bool, error) {
+type DiscardedEventParams struct {
+	EventID  uuid.UUID
+	WorkerID uuid.UUID
+	Err      error
+}
+
+func (d DiscardedEventParams) valid() error {
+	if d.Err == nil {
+		return NilEventErr
+	}
+	return nil
+}
+
+func (r *RealtimeMailDB) MarkOutboxEventAsDiscarded(ctx context.Context, p DiscardedEventParams) (bool, error) {
+	err := p.valid()
+	if err != nil {
+		return false, err
+	}
 	rows, err := r.queries.MarkOutboxEventAsDiscarded(ctx, realtimemailsql.MarkOutboxEventAsDiscardedParams{
 		OutboxEventID: pgtype.UUID{
 			Bytes: p.EventID,

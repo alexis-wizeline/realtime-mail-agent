@@ -163,7 +163,7 @@ func (w *worker) failure(ctx context.Context, event realtimemailsql.OutboxEvent,
 			NextAttempAt: time.Now().Add(nextAttempBackoffSec * time.Second),
 		})
 	} else {
-		marked, queryErr = w.db.MarkOutboxEventAsDiscarded(ctx, db.FailedEventParams{
+		marked, queryErr = w.db.MarkOutboxEventAsDiscarded(ctx, db.DiscardedEventParams{
 			EventID:  event.ID.Bytes,
 			WorkerID: w.id,
 			Err:      err,
