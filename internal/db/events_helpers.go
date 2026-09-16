@@ -105,12 +105,3 @@ func createOutboxEvent(ctx context.Context, qTx *realtimemailsql.Queries, e Outb
 
 	return nil
 }
-
-func outboxJobsIDs(jobs []realtimemailsql.OutboxEvent) []pgtype.UUID {
-	ids := make([]pgtype.UUID, len(jobs))
-	for i, job := range jobs {
-		ids[i] = job.ID
-	}
-
-	return ids
-}

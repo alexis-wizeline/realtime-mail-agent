@@ -2,8 +2,10 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -14,6 +16,9 @@ import (
 type DB interface {
 	CreateEvents(context.Context, *ingestevents.IngestEvent) error
 	ClaimOutboxEvents(context.Context, ClaimOutboxEventsParams) ([]realtimemailsql.OutboxEvent, error)
+	MarkOutboxEventAsPublished(context.Context, uuid.UUID, uuid.UUID) (bool, error)
+	MarkOutboxEventAsFailed(context.Context, FailedEventParams) (bool, error)
+	MarkOutboxEventAsDiscarded(context.Context, DiscardedEventParams) (bool, error)
 }
 
 type RealtimeMailDB struct {
@@ -91,15 +96,14 @@ func (r *RealtimeMailDB) ClaimOutboxEvents(ctx context.Context, p ClaimOutboxEve
 		jobsLimt = DEFAULT_JOBS_LIMIT
 	}
 
-	jobs, err := qTx.GetOutboxEventsToProcess(ctx, jobsLimt)
+	jobIDs, err := qTx.GetOutboxEventsToProcess(ctx, jobsLimt)
 	if err != nil {
 		return nil, &DbQueryError{
 			QueryName: "GetOutboxEventsToProcess",
 			Err:       err,
 		}
 	}
-	jobIDs := outboxJobsIDs(jobs)
-	err = qTx.ClaimOutboxEvents(ctx, realtimemailsql.ClaimOutboxEventsParams{
+	jobs, err := qTx.ClaimOutboxEvents(ctx, realtimemailsql.ClaimOutboxEventsParams{
 		LockedBy: pgtype.Text{
 			String: p.WorkerName,
 			Valid:  true,
@@ -122,6 +126,127 @@ func (r *RealtimeMailDB) ClaimOutboxEvents(ctx context.Context, p ClaimOutboxEve
 		return nil, err
 	}
 
-	// TODO: fix data to reflect current state as DB
 	return jobs, nil
+}
+
+func (r *RealtimeMailDB) MarkOutboxEventAsPublished(ctx context.Context, eventID uuid.UUID, workerID uuid.UUID) (bool, error) {
+	if err := uuid.Validate(eventID.String()); err != nil {
+		return false, fmt.Errorf("Inavlid EventID: %s", err.Error())
+	}
+
+	rows, err := r.queries.MarkOutboxEventsAsPublished(ctx, realtimemailsql.MarkOutboxEventsAsPublishedParams{
+		LockedBy: pgtype.Text{
+			String: workerID.String(),
+			Valid:  true,
+		},
+		OutboxEventIds: []pgtype.UUID{
+			{
+				Bytes: eventID,
+				Valid: true,
+			},
+		},
+	})
+	if err != nil {
+		return false, &DbQueryError{
+			QueryName: "MarkOutboxEventsAsPublished",
+			Err:       err,
+		}
+	}
+
+	return rows == 1, nil
+}
+
+type FailedEventParams struct {
+	EventID       uuid.UUID
+	WorkerID      uuid.UUID
+	Err           error
+	NextAttemptAt time.Time
+}
+
+func (m *FailedEventParams) valid() error {
+	if m.Err == nil {
+		return NilEventErr
+	}
+	if m.NextAttemptAt.Before(time.Now()) {
+		return NextAttemptInThePast
+	}
+	return nil
+}
+
+func (r *RealtimeMailDB) MarkOutboxEventAsFailed(ctx context.Context, p FailedEventParams) (bool, error) {
+	err := p.valid()
+	if err != nil {
+		return false, err
+	}
+
+	rows, err := r.queries.MarkOutboxEventsAsFailed(ctx, realtimemailsql.MarkOutboxEventsAsFailedParams{
+		LastError: pgtype.Text{
+			String: p.Err.Error(),
+			Valid:  true,
+		},
+		NextAttemptAt: pgtype.Timestamptz{
+			Time:  p.NextAttemptAt,
+			Valid: true,
+		},
+		LockedBy: pgtype.Text{
+			String: p.WorkerID.String(),
+			Valid:  true,
+		},
+		OutboxEventIds: []pgtype.UUID{
+			{
+				Bytes: p.EventID,
+				Valid: true,
+			},
+		},
+	})
+	if err != nil {
+		return false, &DbQueryError{
+			QueryName: "MarkOutboxEventsAsFailed",
+			Err:       err,
+		}
+	}
+
+	return rows == 1, nil
+}
+
+type DiscardedEventParams struct {
+	EventID  uuid.UUID
+	WorkerID uuid.UUID
+	Err      error
+}
+
+func (d DiscardedEventParams) valid() error {
+	if d.Err == nil {
+		return NilEventErr
+	}
+	return nil
+}
+
+func (r *RealtimeMailDB) MarkOutboxEventAsDiscarded(ctx context.Context, p DiscardedEventParams) (bool, error) {
+	err := p.valid()
+	if err != nil {
+		return false, err
+	}
+	rows, err := r.queries.MarkOutboxEventAsDiscarded(ctx, realtimemailsql.MarkOutboxEventAsDiscardedParams{
+		OutboxEventID: pgtype.UUID{
+			Bytes: p.EventID,
+			Valid: true,
+		},
+		LastError: pgtype.Text{
+			String: p.Err.Error(),
+			Valid:  true,
+		},
+		LockedBy: pgtype.Text{
+			String: p.WorkerID.String(),
+			Valid:  true,
+		},
+	})
+	if err != nil {
+		return false, &DbQueryError{
+			QueryName: "MarkOutboxEventAsDiscarded",
+			Err:       err,
+		}
+	}
+
+	return rows == int64(1), nil
 }
