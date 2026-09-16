@@ -12,7 +12,14 @@ type ProcessError struct {
 }
 
 func (p ProcessError) Error() string {
-	return p.Err.Error()
+	if unwrap := p.Unwrap(); unwrap != nil {
+		return unwrap.Error()
+	}
+	return ""
+}
+
+func (p ProcessError) Unwrap() error {
+	return p.Err
 }
 
 // TODO: Handle this correctly

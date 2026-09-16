@@ -55,50 +55,6 @@ func Test_worker_work(t *testing.T) {
 		test func(*testing.T)
 	}{
 		{
-			name: "when no jobs claimed worker does not work",
-			test: func(*testing.T) {
-				db := &mockDB{
-					claimFunc: func() (_ []realtimemailsql.OutboxEvent, _ error) {
-						return []realtimemailsql.OutboxEvent{}, nil
-					},
-					markPublished: func(_ uuid.UUID, _ uuid.UUID, _ map[string]uuid.UUIDs) (bool, error) {
-						return false, nil
-					},
-					markFailed: func(_ uuid.UUID, _ uuid.UUID, _ time.Time, _ map[string]uuid.UUIDs) (bool, error) {
-						return false, nil
-					},
-					markDiscarded: func(_ uuid.UUID, _ uuid.UUID, _ map[string]uuid.UUIDs) (bool, error) {
-						return false, nil
-					},
-					eventStorage: map[string]uuid.UUIDs{},
-				}
-
-				mockP := &mockProcessor{processed: 0}
-
-				worker := &eventWorker{
-					id:        uuid.New(),
-					db:        db,
-					processor: mockP,
-
-					eventLimit:       10,
-					leaseDurationSec: 30 * 60,
-
-					intervalSec: 10,
-					jitter:      2,
-					backOffSec:  5 * 60,
-				}
-				ctx, done := context.WithCancel(t.Context())
-				go worker.work(ctx)
-				time.Sleep(50 * time.Millisecond)
-				done()
-
-				if mockP.processed > 0 {
-					t.Fatal(" no work expected when no jobs where claimed")
-				}
-
-			},
-		},
-		{
 			name: "it pass to success when process does not retunr an error",
 			test: func(*testing.T) {
 				ctx, done := context.WithCancel(t.Context())
@@ -134,8 +90,7 @@ func Test_worker_work(t *testing.T) {
 
 				mockP := &mockProcessor{processed: 0}
 
-				worker := &eventWorker{
-					id:        uuid.New(),
+				worker, err := newEventWorker(workerEventSettings{
 					db:        db,
 					processor: mockP,
 
@@ -144,7 +99,10 @@ func Test_worker_work(t *testing.T) {
 
 					intervalSec: 10,
 					jitter:      2,
-					backOffSec:  5 * 60,
+					backoffSec:  5 * 60,
+				})
+				if err != nil {
+					t.Fatalf("invalid worker settings: %s", err.Error())
 				}
 				go worker.work(ctx)
 				<-ctx.Done()
@@ -198,8 +156,7 @@ func Test_worker_work(t *testing.T) {
 					Retry: true,
 				}}
 
-				worker := &eventWorker{
-					id:        uuid.New(),
+				worker, err := newEventWorker(workerEventSettings{
 					db:        db,
 					processor: mockP,
 
@@ -208,7 +165,10 @@ func Test_worker_work(t *testing.T) {
 
 					intervalSec: 10,
 					jitter:      2,
-					backOffSec:  5 * 60,
+					backoffSec:  5 * 60,
+				})
+				if err != nil {
+					t.Fatalf("invalid worker settings: %s", err.Error())
 				}
 				go worker.work(ctx)
 				<-ctx.Done()
@@ -259,8 +219,7 @@ func Test_worker_work(t *testing.T) {
 					Retry: false,
 				}}
 
-				worker := &eventWorker{
-					id:        uuid.New(),
+				worker, err := newEventWorker(workerEventSettings{
 					db:        db,
 					processor: mockP,
 
@@ -269,7 +228,10 @@ func Test_worker_work(t *testing.T) {
 
 					intervalSec: 10,
 					jitter:      2,
-					backOffSec:  5 * 60,
+					backoffSec:  5 * 60,
+				})
+				if err != nil {
+					t.Fatalf("invalid worker settings: %s", err.Error())
 				}
 				go worker.work(ctx)
 				<-ctx.Done()
@@ -322,8 +284,7 @@ func Test_worker_work(t *testing.T) {
 					Retry: true,
 				}}
 
-				worker := &eventWorker{
-					id:        uuid.New(),
+				worker, err := newEventWorker(workerEventSettings{
 					db:        db,
 					processor: mockP,
 
@@ -332,12 +293,77 @@ func Test_worker_work(t *testing.T) {
 
 					intervalSec: 10,
 					jitter:      2,
-					backOffSec:  5 * 60,
+					backoffSec:  5 * 60,
+				})
+				if err != nil {
+					t.Fatalf("invalid worker settings: %s", err.Error())
 				}
 				go worker.work(ctx)
 				<-ctx.Done()
 				if mockP.processed < 1 {
 					t.Fatalf("expecting the event %s, to be processed", eventID.String())
+				}
+				if !slices.Contains(db.eventStorage["discarded"], eventID) {
+					t.Fatalf("expecting the event %s, to be included in the discarded storage", eventID)
+				}
+			},
+		},
+		{
+			name: "it discard an event when max attemp was passed without process the event",
+			test: func(*testing.T) {
+				ctx, done := context.WithCancel(t.Context())
+				eventID := uuid.New()
+				db := &mockDB{
+					claimFunc: func() (_ []realtimemailsql.OutboxEvent, _ error) {
+						return []realtimemailsql.OutboxEvent{
+							{
+								ID: pgtype.UUID{
+									Bytes: eventID,
+									Valid: true,
+								},
+								Attempts:    6,
+								MaxAttempts: 5,
+							},
+						}, nil
+					},
+					markPublished: func(_ uuid.UUID, _ uuid.UUID, _ map[string]uuid.UUIDs) (bool, error) {
+						return false, nil
+					},
+					markFailed: func(eventID uuid.UUID, _ uuid.UUID, _ time.Time, storage map[string]uuid.UUIDs) (bool, error) {
+						return false, nil
+					},
+					markDiscarded: func(eventID uuid.UUID, _ uuid.UUID, storage map[string]uuid.UUIDs) (bool, error) {
+						defer done()
+						_, ok := storage["discarded"]
+						if !ok {
+							storage["discarded"] = uuid.UUIDs{}
+						}
+						storage["discarded"] = append(storage["discarded"], eventID)
+						return true, nil
+					},
+					eventStorage: map[string]uuid.UUIDs{},
+				}
+
+				mockP := &mockProcessor{processed: 0, err: nil}
+
+				worker, err := newEventWorker(workerEventSettings{
+					db:        db,
+					processor: mockP,
+
+					eventLimit:       10,
+					leaseDurationSec: 30 * 60,
+
+					intervalSec: 10,
+					jitter:      2,
+					backoffSec:  5 * 60,
+				})
+				if err != nil {
+					t.Fatalf("invalid worker settings: %s", err.Error())
+				}
+				go worker.work(ctx)
+				<-ctx.Done()
+				if mockP.processed > 0 {
+					t.Fatalf("expecting the event %s, to not be processed", eventID.String())
 				}
 				if !slices.Contains(db.eventStorage["discarded"], eventID) {
 					t.Fatalf("expecting the event %s, to be included in the discarded storage", eventID)

@@ -57,6 +57,8 @@ var (
 	WorkerLeaseDurationZeroErr = errors.New("the lease duration for the worker must be higher than zero")
 	WorkerIntervalSecZeroErr   = errors.New("the interval for the worker must be higher than zero")
 	WorkerBackOffSecZeroErr    = errors.New("the backoff retry for the worker needs to be higher than zero")
+
+	EventMaxAttempsPassedErr = errors.New("current attemp is higher than max attemps available")
 )
 
 type worker interface {
@@ -198,6 +200,10 @@ func (w *eventWorker) handleEvents(ctx context.Context, events []realtimemailsql
 			EventType: event.EventType,
 			Topic:     event.Topic,
 			Payload:   event.Payload,
+		}
+		if event.Attempts > event.MaxAttempts {
+			w.failure(ctx, event, EventMaxAttempsPassedErr)
+			continue
 		}
 		err := w.processor.Process(ctx, job)
 		if err != nil {
