@@ -13,41 +13,9 @@ import (
 	"github.com/google/uuid"
 )
 
-////
-// worker
-// id (UUID) - identifier bets if is unique
-//
-// db - it would call to get the amount of jobs to process
-// processor - and interface that contains the logic to process the jobs
-//
-// eventLimit <- the number of jobs to process each run
-//
-// intervalSec - every time the process should work
-// jitter - to spread the runs and avoid call ovehead to the db
-//
-// fields that are to consider
-// statusCh bool - to report to the pool that the job is still working
-// ???
-//
-//
-// What a worker does?
-// first pass
-// work(context) <- do the work
-// 		1.- get jobs
-//      2.- call processor.Process(job) get an err
-//      3.- err null? no - send to published, yes - sedn to failed with err (probably another PR to make batch queries into single job query?)
-// future consideration?
-// start(ctx) <- init backfround jobs for work(ctx) and beat()
-// 		work(ctx) <- same as before
-// 		beat() <- reports to the pool that is still alive so it can refresh unfinished jobs
-// 			- single action after interval statusCh<-true but biggest question how should handle dead?
-//
-// to handle retries in the process we should do go processor.process(ctx, e) and report throuhg a channel succes or failure proabbaly 2 chanels not ablocker in a first iteration
-//
-
 const (
-	nextAttempBackoffSec = 60
-	defaultJitter        = 20
+	nextAttemptBackoffSec = 60
+	defaultJitter         = 20
 )
 
 var (
@@ -58,7 +26,7 @@ var (
 	WorkerIntervalSecZeroErr   = errors.New("the interval for the worker must be higher than zero")
 	WorkerBackOffSecZeroErr    = errors.New("the backoff retry for the worker needs to be higher than zero")
 
-	EventMaxAttempsPassedErr = errors.New("current attemp is higher than max attemps available")
+	EventMaxAttemptsPassedErr = errors.New("current attempt is higher than max attempts available")
 )
 
 type worker interface {
@@ -118,9 +86,9 @@ func newEventWorker(s workerEventSettings) (worker, error) {
 	if err != nil {
 		return nil, err
 	}
-	jiter := s.jitter
-	if jiter <= 0 {
-		jiter = defaultJitter
+	jitter := s.jitter
+	if jitter <= 0 {
+		jitter = defaultJitter
 	}
 	return &eventWorker{
 		id: uuid.New(),
@@ -132,7 +100,7 @@ func newEventWorker(s workerEventSettings) (worker, error) {
 		leaseDurationSec: s.leaseDurationSec,
 
 		intervalSec: s.intervalSec,
-		jitter:      jiter,
+		jitter:      jitter,
 		backOffSec:  s.backoffSec,
 	}, nil
 }
@@ -202,7 +170,7 @@ func (w *eventWorker) handleEvents(ctx context.Context, events []realtimemailsql
 			Payload:   event.Payload,
 		}
 		if event.Attempts > event.MaxAttempts {
-			w.failure(ctx, event, EventMaxAttempsPassedErr)
+			w.failure(ctx, event, EventMaxAttemptsPassedErr)
 			continue
 		}
 		err := w.processor.Process(ctx, job)
@@ -234,10 +202,10 @@ func (w *eventWorker) failure(ctx context.Context, event realtimemailsql.OutboxE
 	var queryErr error
 	if retryEvent(event, err) {
 		marked, queryErr = w.db.MarkOutboxEventAsFailed(ctx, db.FailedEventParams{
-			EventID:      event.ID.Bytes,
-			WorkerID:     w.id,
-			Err:          err,
-			NextAttempAt: time.Now().Add(nextAttempBackoffSec * time.Second),
+			EventID:       event.ID.Bytes,
+			WorkerID:      w.id,
+			Err:           err,
+			NextAttemptAt: time.Now().Add(nextAttemptBackoffSec * time.Second),
 		})
 	} else {
 		marked, queryErr = w.db.MarkOutboxEventAsDiscarded(ctx, db.DiscardedEventParams{

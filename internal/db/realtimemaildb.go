@@ -157,18 +157,18 @@ func (r *RealtimeMailDB) MarkOutboxEventAsPublished(ctx context.Context, eventID
 }
 
 type FailedEventParams struct {
-	EventID      uuid.UUID
-	WorkerID     uuid.UUID
-	Err          error
-	NextAttempAt time.Time
+	EventID       uuid.UUID
+	WorkerID      uuid.UUID
+	Err           error
+	NextAttemptAt time.Time
 }
 
 func (m *FailedEventParams) valid() error {
 	if m.Err == nil {
 		return NilEventErr
 	}
-	if m.NextAttempAt.Before(time.Now()) {
-		return NextAttempInThePast
+	if m.NextAttemptAt.Before(time.Now()) {
+		return NextAttemptInThePast
 	}
 	return nil
 }
@@ -185,7 +185,7 @@ func (r *RealtimeMailDB) MarkOutboxEventAsFailed(ctx context.Context, p FailedEv
 			Valid:  true,
 		},
 		NextAttemptAt: pgtype.Timestamptz{
-			Time:  p.NextAttempAt,
+			Time:  p.NextAttemptAt,
 			Valid: true,
 		},
 		LockedBy: pgtype.Text{

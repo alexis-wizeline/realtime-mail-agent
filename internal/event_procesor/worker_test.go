@@ -32,7 +32,7 @@ func (m *mockDB) MarkOutboxEventAsPublished(_ context.Context, eventID, workerID
 }
 
 func (m *mockDB) MarkOutboxEventAsFailed(_ context.Context, p db.FailedEventParams) (bool, error) {
-	return m.markFailed(p.EventID, p.WorkerID, p.NextAttempAt, m.eventStorage)
+	return m.markFailed(p.EventID, p.WorkerID, p.NextAttemptAt, m.eventStorage)
 }
 
 func (m *mockDB) MarkOutboxEventAsDiscarded(_ context.Context, p db.DiscardedEventParams) (bool, error) {
@@ -55,7 +55,7 @@ func Test_worker_work(t *testing.T) {
 		test func(*testing.T)
 	}{
 		{
-			name: "it pass to success when process does not retunr an error",
+			name: "it pass to success when process does not return an error",
 			test: func(*testing.T) {
 				ctx, done := context.WithCancel(t.Context())
 				eventID := uuid.New()
@@ -74,7 +74,7 @@ func Test_worker_work(t *testing.T) {
 						defer done()
 						_, ok := storage["published"]
 						if !ok {
-							storage["publisehd"] = uuid.UUIDs{}
+							storage["published"] = uuid.UUIDs{}
 						}
 						storage["published"] = append(storage["published"], eventID)
 						return true, nil
@@ -244,7 +244,7 @@ func Test_worker_work(t *testing.T) {
 			},
 		},
 		{
-			name: "it passes to discarded when event is retriable but max attemps reached",
+			name: "it passes to discarded when event is retriable but max attempts reached",
 			test: func(*testing.T) {
 				ctx, done := context.WithCancel(t.Context())
 				eventID := uuid.New()
@@ -309,7 +309,7 @@ func Test_worker_work(t *testing.T) {
 			},
 		},
 		{
-			name: "it discard an event when max attemp was passed without process the event",
+			name: "it discard an event when max attempt was passed without process the event",
 			test: func(*testing.T) {
 				ctx, done := context.WithCancel(t.Context())
 				eventID := uuid.New()
