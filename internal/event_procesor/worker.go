@@ -19,28 +19,30 @@ const (
 )
 
 var (
-	WorkerDBNilErr             = errors.New("the database for the worker can not be nil")
-	WorkerProcessorNilErr      = errors.New("the processor for the worker can not be nil")
-	WorkerEventLimitZeroErr    = errors.New("the event limit for the worker must be higher than zero")
-	WorkerLeaseDurationZeroErr = errors.New("the lease duration for the worker must be higher than zero")
-	WorkerIntervalSecZeroErr   = errors.New("the interval for the worker must be higher than zero")
-	WorkerBackOffSecZeroErr    = errors.New("the backoff retry for the worker needs to be higher than zero")
+	WorkerDBNilErr                         = errors.New("the database for the worker can not be nil")
+	WorkerProcessorNilErr                  = errors.New("the processor for the worker can not be nil")
+	WorkerEventLimitZeroErr                = errors.New("the event limit for the worker must be higher than zero")
+	WorkerLeaseDurationZeroErr             = errors.New("the lease duration for the worker must be higher than zero")
+	WorkerIntervalSecZeroErr               = errors.New("the interval for the worker must be higher than zero")
+	WorkerBackOffSecZeroErr                = errors.New("the backoff retry for the worker needs to be higher than zero")
+	WorkerLeaseDurationLowerIntervalSecErr = errors.New("the lease duration for theworker needs to be greater than the interval duration")
 
 	EventMaxAttemptsPassedErr = errors.New("current attempt is higher than max attempts available")
 )
 
 type worker interface {
 	work(context.Context)
+	key() uuid.UUID
 }
 
 type eventWorker struct {
 	id uuid.UUID
 
-	db        processorDB
+	db        PoolDB
 	processor processors.Processor
 
 	eventLimit       int
-	leaseDurationSec int
+	leaseDurationSec int64
 
 	intervalSec int64
 	jitter      int64
@@ -48,11 +50,11 @@ type eventWorker struct {
 }
 
 type workerEventSettings struct {
-	db        processorDB
+	db        PoolDB
 	processor processors.Processor
 
 	eventLimit       int
-	leaseDurationSec int
+	leaseDurationSec int64
 
 	intervalSec int64
 	jitter      int64
@@ -74,6 +76,9 @@ func (w workerEventSettings) valid() error {
 	}
 	if w.intervalSec <= 0 {
 		return WorkerIntervalSecZeroErr
+	}
+	if w.leaseDurationSec <= w.intervalSec {
+		return WorkerLeaseDurationLowerIntervalSecErr
 	}
 	if w.backoffSec <= 0 {
 		return WorkerBackOffSecZeroErr
@@ -103,6 +108,10 @@ func newEventWorker(s workerEventSettings) (worker, error) {
 		jitter:      jitter,
 		backOffSec:  s.backoffSec,
 	}, nil
+}
+
+func (w *eventWorker) key() uuid.UUID {
+	return w.id
 }
 
 func (w *eventWorker) work(ctx context.Context) {
