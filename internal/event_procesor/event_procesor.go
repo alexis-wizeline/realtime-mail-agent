@@ -155,5 +155,6 @@ func (e *EventProcessorPool) startWorkers() {
 		e.pool.Go(func() {
 			ref.worker.work(e.ctx)
 		})
+		ref.status = active
 	}
 }

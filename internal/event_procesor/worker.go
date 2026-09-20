@@ -248,6 +248,10 @@ func retryEvent(e realtimemailsql.OutboxEvent, err error) bool {
 		e.Attempts < e.MaxAttempts {
 		return true
 	}
+	if errors.Is(err, context.Canceled) ||
+		errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
 
 	return false
 }
