@@ -17,28 +17,31 @@ import (
 	ingestevents "github.com/alexis-dragneel/realtime-mail-agent/internal/server/models/ingest_events"
 )
 
-func setupTestDB() (*pgxpool.Pool, *realtimemailsql.Queries, func(), error) {
+func SetupTestDB(ctx context.Context, t *testing.T) (*pgxpool.Pool, *realtimemailsql.Queries, func()) {
+	t.Helper()
 	dbURL := os.Getenv("DATABASE_URL")
-	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, dbURL)
 	if err != nil {
-		return nil, nil, nil, err
+		t.Fatalf("unable to initialize the db: %s", err.Error())
+	}
+
+	err = pool.Ping(ctx)
+	if err != nil {
+		t.Fatalf("unable to connect with the db: %s", err.Error())
 	}
 
 	q := realtimemailsql.New(pool)
+
 	return pool, q, func() {
 		pool.Close()
-	}, pool.Ping(ctx)
+	}
 }
 
 func Test_CreateEvents(t *testing.T) {
-	pool, queries, finish, err := setupTestDB()
-	if err != nil {
-		t.Fatalf("unable to connect to db: %s", err)
-	}
+	ctx := context.Background()
+	pool, queries, finish := SetupTestDB(ctx, t)
 	defer finish()
 	db := &RealtimeMailDB{pool: pool, queries: queries, outboxEventMapper: DefaultOutboxMapper}
-	ctx := context.Background()
 	tcs := []struct {
 		name string
 		test func(*testing.T)
@@ -132,7 +135,7 @@ func Test_CreateEvents(t *testing.T) {
 					}
 				}
 				ingestEvent := newEventPayload()
-				err = db.CreateEvents(ctx, ingestEvent)
+				err := db.CreateEvents(ctx, ingestEvent)
 				if err == nil {
 					t.Fatalf("expecting the creation to fail")
 				}
@@ -198,7 +201,7 @@ func Test_CreateEvents(t *testing.T) {
 		t.Run(tc.name, tc.test)
 	}
 
-	err = cleanUpJobs(t.Context(), pool)
+	err := cleanUpJobs(t.Context(), pool)
 	if err != nil {
 		t.Fatalf("cleanupJobs Failed: %s", err.Error())
 	}
@@ -206,10 +209,7 @@ func Test_CreateEvents(t *testing.T) {
 }
 
 func Test_ClaimOutboxEvents(t *testing.T) {
-	p, q, finish, err := setupTestDB()
-	if err != nil {
-		t.Fatalf("unable to connect to db: %s", err.Error())
-	}
+	p, q, finish := SetupTestDB(t.Context(), t)
 	defer finish()
 	db := &RealtimeMailDB{queries: q, pool: p, outboxEventMapper: DefaultOutboxMapper}
 
@@ -376,7 +376,7 @@ func Test_ClaimOutboxEvents(t *testing.T) {
 		t.Run(tc.name, tc.test)
 	}
 
-	err = cleanUpJobs(t.Context(), p)
+	err := cleanUpJobs(t.Context(), p)
 	if err != nil {
 		t.Fatalf("cleanupJobs Failed: %s", err)
 	}
