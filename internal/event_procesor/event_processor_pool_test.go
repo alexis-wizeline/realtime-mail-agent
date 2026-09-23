@@ -21,7 +21,7 @@ func Test_NewEventProcessorPool(t *testing.T) {
 		expectedErr error
 	}{
 		{
-			name: "inavlid db",
+			name: "invalid db",
 			params: NewEventProcessorPoolParams{
 				DB:        nil,
 				Processor: mocks.NewMockProcess(nil),
