@@ -16,16 +16,17 @@ import (
 const (
 	nextAttemptBackoffSec = 60
 	defaultJitter         = 20
+	maxLeaseDurationSec   = 3600
 )
 
 var (
-	WorkerDBNilErr                         = errors.New("the database for the worker can not be nil")
-	WorkerProcessorNilErr                  = errors.New("the processor for the worker can not be nil")
-	WorkerEventLimitZeroErr                = errors.New("the event limit for the worker must be higher than zero")
-	WorkerLeaseDurationZeroErr             = errors.New("the lease duration for the worker must be higher than zero")
-	WorkerIntervalSecZeroErr               = errors.New("the interval for the worker must be higher than zero")
-	WorkerBackOffSecZeroErr                = errors.New("the backoff retry for the worker needs to be higher than zero")
-	WorkerLeaseDurationLowerIntervalSecErr = errors.New("the lease duration for theworker needs to be greater than the interval duration")
+	WorkerDBNilErr                           = errors.New("the database for the worker can not be nil")
+	WorkerProcessorNilErr                    = errors.New("the processor for the worker can not be nil")
+	WorkerEventLimitZeroErr                  = errors.New("the event limit for the worker must be higher than zero")
+	WorkerLeaseDurationZeroErr               = errors.New("the lease duration for the worker must be higher than zero")
+	WorkerIntervalSecZeroErr                 = errors.New("the interval for the worker must be higher than zero")
+	WorkerBackOffSecZeroErr                  = errors.New("the backoff retry for the worker needs to be higher than zero")
+	WorkerLeaseDurationHigherThanMAxLeaseErr = errors.New("the lease duration for the worker is more of 1 hour")
 
 	EventMaxAttemptsPassedErr = errors.New("current attempt is higher than max attempts available")
 )
@@ -77,8 +78,8 @@ func (w workerEventSettings) valid() error {
 	if w.intervalSec <= 0 {
 		return WorkerIntervalSecZeroErr
 	}
-	if w.leaseDurationSec <= w.intervalSec {
-		return WorkerLeaseDurationLowerIntervalSecErr
+	if w.leaseDurationSec > maxLeaseDurationSec {
+		return WorkerLeaseDurationHigherThanMAxLeaseErr
 	}
 	if w.backoffSec <= 0 {
 		return WorkerBackOffSecZeroErr
@@ -248,10 +249,5 @@ func retryEvent(e realtimemailsql.OutboxEvent, err error) bool {
 		e.Attempts < e.MaxAttempts {
 		return true
 	}
-	if errors.Is(err, context.Canceled) ||
-		errors.Is(err, context.DeadlineExceeded) {
-		return true
-	}
-
 	return false
 }

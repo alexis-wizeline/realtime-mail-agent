@@ -11,13 +11,6 @@ import (
 	"github.com/google/uuid"
 )
 
-type workerRefStatus string
-
-const (
-	pending workerRefStatus = "pending"
-	active  workerRefStatus = "active"
-)
-
 var (
 	WorkerPoolSettingsWorkerZeroErr    = errors.New("workers must be at least 1 in the pool settings")
 	WorkerPoolEvenstWorkerLimitZeroErr = errors.New("the max amount of events for each worker needs to be more than 0")
@@ -67,7 +60,6 @@ func (p ProcessorWorkerPoolSettings) valid() error {
 }
 
 type workerRef struct {
-	status workerRefStatus
 	worker worker
 }
 type poolWorkers map[uuid.UUID]*workerRef
@@ -83,6 +75,7 @@ type EventProcessorPool struct {
 	workers poolWorkers
 
 	pool sync.WaitGroup
+	init bool
 }
 
 type NewEventProcessorPoolParams struct {
@@ -125,7 +118,6 @@ func NewEventProcessorPool(ctx context.Context, p NewEventProcessorPoolParams) (
 			return nil, err
 		}
 		workers[w.key()] = &workerRef{
-			status: pending,
 			worker: w,
 		}
 	}
@@ -143,18 +135,18 @@ func NewEventProcessorPool(ctx context.Context, p NewEventProcessorPoolParams) (
 }
 
 func (e *EventProcessorPool) Start() {
+	if e.init {
+		return
+	}
+	e.init = true
 	e.startWorkers()
 	e.pool.Wait()
 }
 
 func (e *EventProcessorPool) startWorkers() {
 	for _, ref := range e.workers {
-		if ref.status != pending {
-			continue
-		}
 		e.pool.Go(func() {
 			ref.worker.work(e.ctx)
 		})
-		ref.status = active
 	}
 }

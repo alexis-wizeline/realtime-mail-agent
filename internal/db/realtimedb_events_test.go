@@ -17,7 +17,8 @@ import (
 	ingestevents "github.com/alexis-dragneel/realtime-mail-agent/internal/server/models/ingest_events"
 )
 
-func SetupTestDB(ctx context.Context, t *testing.T) (*pgxpool.Pool, *realtimemailsql.Queries, func()) {
+// TODO: use testutils instead
+func setupTestDB(ctx context.Context, t *testing.T) (*pgxpool.Pool, *realtimemailsql.Queries, func()) {
 	t.Helper()
 	dbURL := os.Getenv("DATABASE_URL")
 	pool, err := pgxpool.New(ctx, dbURL)
@@ -39,7 +40,7 @@ func SetupTestDB(ctx context.Context, t *testing.T) (*pgxpool.Pool, *realtimemai
 
 func Test_CreateEvents(t *testing.T) {
 	ctx := context.Background()
-	pool, queries, finish := SetupTestDB(ctx, t)
+	pool, queries, finish := setupTestDB(ctx, t)
 	defer finish()
 	db := &RealtimeMailDB{pool: pool, queries: queries, outboxEventMapper: DefaultOutboxMapper}
 	tcs := []struct {
@@ -209,7 +210,7 @@ func Test_CreateEvents(t *testing.T) {
 }
 
 func Test_ClaimOutboxEvents(t *testing.T) {
-	p, q, finish := SetupTestDB(t.Context(), t)
+	p, q, finish := setupTestDB(t.Context(), t)
 	defer finish()
 	db := &RealtimeMailDB{queries: q, pool: p, outboxEventMapper: DefaultOutboxMapper}
 

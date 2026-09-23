@@ -1,8 +1,9 @@
-package db
+package mocks
 
 import (
 	"context"
 
+	"github.com/alexis-dragneel/realtime-mail-agent/internal/db"
 	"github.com/alexis-dragneel/realtime-mail-agent/internal/generated/realtimemailsql"
 	ingestevents "github.com/alexis-dragneel/realtime-mail-agent/internal/server/models/ingest_events"
 	"github.com/google/uuid"
@@ -24,7 +25,7 @@ func (m *MockDB) CreateEvents(context.Context, *ingestevents.IngestEvent) error 
 	return m.CreateEventsErr
 }
 
-func (m *MockDB) ClaimOutboxEvents(context.Context, ClaimOutboxEventsParams) ([]realtimemailsql.OutboxEvent, error) {
+func (m *MockDB) ClaimOutboxEvents(context.Context, db.ClaimOutboxEventsParams) ([]realtimemailsql.OutboxEvent, error) {
 	return m.ClaimOutboxEventsRes, m.ClaimOutboxEventsErr
 }
 
@@ -32,10 +33,10 @@ func (m *MockDB) MarkOutboxEventAsPublished(context.Context, uuid.UUID, uuid.UUI
 	return m.MarkOutboxEventAsPublishedRes, m.MarkOutboxEventAsPublishedErr
 }
 
-func (m *MockDB) MarkOutboxEventAsFailed(context.Context, FailedEventParams) (bool, error) {
+func (m *MockDB) MarkOutboxEventAsFailed(context.Context, db.FailedEventParams) (bool, error) {
 	return m.MarkOutboxEventAsFailedRes, m.MarkOutboxEventAsFailedErr
 }
 
-func (m *MockDB) MarkOutboxEventAsDiscarded(context.Context, DiscardedEventParams) (bool, error) {
+func (m *MockDB) MarkOutboxEventAsDiscarded(context.Context, db.DiscardedEventParams) (bool, error) {
 	return m.MarkOutboxEventAsDiscardedRes, m.MarkOutboxEventAsDiscardedErr
 }
