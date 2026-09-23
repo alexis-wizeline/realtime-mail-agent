@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/alexis-dragneel/realtime-mail-agent/internal/db"
@@ -14,8 +15,9 @@ import (
 
 type EventIDs []string
 type TestutilsOutboxEvent struct {
-	ID     string
-	Status string
+	ID                 string
+	Status             string
+	AssignedWorkerName pgtype.Text
 }
 
 type doneFunc func()
@@ -104,7 +106,7 @@ func (t *TestutilsDB) QueryEventStatuses(ctx context.Context, ids EventIDs) ([]T
 		incommingEventsIDS = append(incommingEventsIDS, id)
 	}
 
-	outboxQuery := `SELECT id, status FROM outbox_events WHERE incoming_event_id = ANY($1)`
+	outboxQuery := `SELECT id, status, locked_by FROM outbox_events WHERE incoming_event_id = ANY($1)`
 	outboxRows, err := t.pool.Query(ctx, outboxQuery, incommingEventsIDS)
 	if err != nil {
 		return nil, err
@@ -114,7 +116,7 @@ func (t *TestutilsDB) QueryEventStatuses(ctx context.Context, ids EventIDs) ([]T
 	var events []TestutilsOutboxEvent
 	for outboxRows.Next() {
 		var event TestutilsOutboxEvent
-		err := outboxRows.Scan(&event.ID, &event.Status)
+		err := outboxRows.Scan(&event.ID, &event.Status, &event.AssignedWorkerName)
 		if err != nil {
 			return nil, err
 		}

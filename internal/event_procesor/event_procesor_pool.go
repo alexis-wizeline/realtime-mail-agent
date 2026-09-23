@@ -13,13 +13,13 @@ import (
 
 var (
 	WorkerPoolSettingsWorkerZeroErr    = errors.New("workers must be at least 1 in the pool settings")
-	WorkerPoolEvenstWorkerLimitZeroErr = errors.New("the max amount of events for each worker needs to be more than 0")
+	WorkerPoolEventsWorkerLimitZeroErr = errors.New("the max amount of events for each worker needs to be more than 0")
 	WorkerPoolLeaseDurationZeroErr     = errors.New("the lease duration for the worker needs to be more than 0")
 	WorkerPoolIntervalZeroErr          = errors.New("the interval for each worker run needs to be more than 0")
 	WorkerPoolWorkerBackoffSecZeroErr  = errors.New("the worker backoff needs to be more than 0")
 
 	PoolDBNilErr        = errors.New("the pool db is null or invalid")
-	PoolProcessorNilErr = errors.New("the pool processor os null or invalid")
+	PoolProcessorNilErr = errors.New("the pool processor is null or invalid")
 )
 
 type PoolDB interface {
@@ -44,7 +44,7 @@ func (p ProcessorWorkerPoolSettings) valid() error {
 		return WorkerPoolSettingsWorkerZeroErr
 	}
 	if p.EventsWorkerLimit <= 0 {
-		return WorkerPoolEvenstWorkerLimitZeroErr
+		return WorkerPoolEventsWorkerLimitZeroErr
 	}
 	if p.EventLeaseDurationSec <= 0 {
 		return WorkerPoolLeaseDurationZeroErr
@@ -67,15 +67,10 @@ type poolWorkers map[uuid.UUID]*workerRef
 type EventProcessorPool struct {
 	ctx context.Context
 
-	// ref to future recovery of jobs
-	settings  ProcessorWorkerPoolSettings
-	db        PoolDB
-	processor processors.Processor
-
 	workers poolWorkers
 
 	pool sync.WaitGroup
-	init bool
+	once sync.Once
 }
 
 type NewEventProcessorPoolParams struct {
@@ -124,10 +119,6 @@ func NewEventProcessorPool(ctx context.Context, p NewEventProcessorPoolParams) (
 	return &EventProcessorPool{
 		ctx: ctx,
 
-		db:        p.DB,
-		processor: p.Processor,
-		settings:  p.WorkerSettings,
-
 		workers: workers,
 
 		pool: sync.WaitGroup{},
@@ -135,11 +126,7 @@ func NewEventProcessorPool(ctx context.Context, p NewEventProcessorPoolParams) (
 }
 
 func (e *EventProcessorPool) Start() {
-	if e.init {
-		return
-	}
-	e.init = true
-	e.startWorkers()
+	e.once.Do(e.startWorkers)
 	e.pool.Wait()
 }
 
