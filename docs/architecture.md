@@ -27,9 +27,9 @@ Outbox-event: the `outbox-event` is the representation of the event that will be
 
 Working pool: the `working pool` is in charge of start the workers that will process the `outbox-events`, once the pool start it will wait until all workers are done to return.
 
-Workers: the workers are responsible to process the `outbox-events`, each worker can tack up to N events at the same time, the worker will send the event to the `Processor` and wait for the response, if the response is providead as succesful (no error was returner), the event will be marked as processed, if the response is provided as failed (an error is returned), based on the type of the error, the event will be amrked as failed to be retried or discarded.
+Workers: the workers are responsible to process the `outbox-events`, each worker can take batches of up to N events but each event will be worked sequentially, the worker will send the event to the `Processor` and wait for the response, if the response is provided as successful (no error was returned), the event will be marked as processed, if the response is provided as failed (an error is returned), based on the type of the error, the event will be marked as failed to be retried or discarded.
 
-Processor: The `Processor` is the component that will send the event to kafka, depeding on the result, it will return an error to especify if the event can be retried or not. if no error is returned, this emans the operation was succesful.
+Processor: The `Processor` is the component that will send the event to kafka, depending on the result, it will return an error to specify if the event can be retried or not. if no error is returned, this means the operation was successful.
 
 ## Events DB schema
 
@@ -55,8 +55,8 @@ status STRING NOT NULL DEFAULT 'pending',
 current_error STRING NULL,
 attempts INT NOT NULL DEFAULT 0,
 max_attempts INT NOT NULL DEFAULT 5,
-blocked_by STRING NULL,
-blocked_until TIMESTAMPTZ NULL,
+locked_by STRING NULL,
+locked_until TIMESTAMPTZ NULL,
 next_attempt TIMESTAMPTZ NULL,
 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(
@@ -64,9 +64,11 @@ processed_at TIMESTAMPTZ NULL
 )
 ```
 
-The creation of the events should be atomic, meaning that only one event for the same `event_id` can be created no matter how many attemps are made to create the event. This is handled by the database as a constratint on the `event_id` column of the `incoming_events` table. If an attempt is made to create an event with a duplicate `event_id`, the database will reject the operation, ensuring that only one unique event is stored for each `event_id`. This also means that if the creation of the `incoming_event` fails, the `outbox_event` will not be created, and vice versa. The transaction will be rolled back to maintain data integrity.
+The creation of the events should be idempotent, meaning that only one event for the same `event_id` can be created no matter how many attemps are made to create the event. This is handled by the database as a constratint on the `event_id` column of the `incoming_events` table. If an attempt is made to create an event with a duplicate `event_id`, the database will reject the operation, ensuring that only one unique event is stored for each `event_id`.
 
-Also when a worker intends to process an `outobox-event`, is important to ensure that the event is not ebing processed by another worker at the same time. This is handled by the `blocked_by` and `blocked_until` columns in the `outbox_events` table. Also while the worker is claiming the event, it needs to be handled in a trasaction using the SKIP LOCKED FOR UPDATE clause to ensure no other worker can claim the same event at the same time.
+This operation is also atomic means that if the creation of the `incoming_event` fails, the `outbox_event` will not be created, and vice versa. The transaction will be rolled back to maintain data integrity.
+
+Also when a worker intends to process an `outobox-event`, is important to ensure that the event is not ebing processed by another worker at the same time. This is handled by the `locked_by` and `locked_until` columns in the `outbox_events` table. Also while the worker is claiming the event, it needs to be handled in a trasaction using the SKIP LOCKED FOR UPDATE clause to ensure no other worker can claim the same event at the same time.
 
 An `outbox-event` can be claimed by a worker up to 5 times, if the event fails to be processed after 5 attemps, it will be marked as discarded and it will no be claimed again.
 
@@ -127,8 +129,8 @@ An `outbox-event` can be claimed by a worker up to 5 times, if the event fails t
 5. The worker sends the event to the `Processor`.
 6. The `Processor` successfully sends the event to Kafka and returns no error.
 7. Before the worker can mark the `outbox_event` as processed, the worker stops unexpectedly (e.g., due to a crash or shutdown).
-8. The `outbox_event` remains in the database with its status still set to 'pending' and the `blocked_by` and `blocked_until` fields indicating that it was being processed by the worker.
-9. When the ` working pool` restarts, it will check for any `outbox_events` that are still blocked and have exceeded their `blocked_until` time. The `outbox_event` will be unblocked and made available for processing again.
+8. The `outbox_event` remains in the database with its status still set to 'processing' and the `locked_by` and `locked_until` fields indicating that it was being processed by the worker.
+9. When the ` working pool` restarts, it will check for any `outbox_events` that are still locked and have exceeded their `locked_until` time. The `outbox_event` will be elegible to be processed again.
 10. A worker can claim the `outbox_event` again and send it to the `Processor` for processing.
 11. The `Processor` successfully sends the event to Kafka and returns no error.
 12. The worker marks the `outbox_event` as processed in the database, completing the workflow successfully.
@@ -142,8 +144,8 @@ An `outbox-event` can be claimed by a worker up to 5 times, if the event fails t
 5. The worker sends the event to the `Processor`.
 6. The `Processor` fails to send the event to Kafka and returns an error indicating that the event can be retried.
 7. Before the worker can mark the `outbox_event` as failed, the worker stops unexpectedly (e.g., due to a crash or shutdown).
-8. The `outbox_event` remains in the database with its status still set to 'pending' and the `blocked_by` and `blocked_until` fields indicating that it was being processed by the worker.
-9. When the `working pool` restarts, it will check for any `outbox_events` that are still blocked and have exceeded their `blocked_until` time. The `outbox_event` will be unblocked and made available for processing again.
+8. The `outbox_event` remains in the database with its status still set to 'processing' and the `locked_by` and `locked_until` fields indicating that it was being processed by the worker.
+9. When the `working pool` restarts, it will check for any `outbox_events` that are still locked and have exceeded their `locked_until` time. The `outbox_event` will be elegible to be processed again.
 10. A worker can claim the `outbox_event` again and send it to the `Processor` for processing.
 11. The `Processor` fails to send the event to Kafka and returns an error indicating that the event can be retried.
 12. The worker marks the `outbox_event` as failed in the database, the `next_attempt_at` is set to a future time based on the retry policy.
@@ -157,8 +159,8 @@ An `outbox-event` can be claimed by a worker up to 5 times, if the event fails t
 5. The worker sends the event to the `Processor`.
 6. The `Processor` fails to send the event to Kafka and returns an error indicating that the event cannot be retried (e.g., due to a validation error).
 7. Before the worker can mark the `outbox_event` as discarded, the worker stops unexpectedly (e.g., due to a crash or shutdown).
-8. The `outbox_event` remains in the database with its status still set to 'pending' and the `blocked_by` and `blocked_until` fields indicating that it was being processed by the worker.
-9. When the `working pool` restarts, it will check for any `outbox_events` that are still blocked and have exceeded their `blocked_until` time. The `outbox_event` will be unblocked and made available for processing again.
+8. The `outbox_event` remains in the database with its status still set to 'processing' and the `locked_by` and `locked_until` fields indicating that it was being processed by the worker.
+9. When the `working pool` restarts, it will check for any `outbox_events` that are still locked and have exceeded their `locked_until` time. The `outbox_event` will be elegible to be processed again.
 10. A worker can claim the `outbox_event` again and send it to the `Processor` for processing.
 11. The `Processor` fails to send the event to Kafka and returns an error indicating that the event cannot be retried (e.g., due to a validation error).
 12. The worker marks the `outbox_event` as discarded in the database, and it will no longer be claimed for processing.
@@ -167,5 +169,29 @@ An `outbox-event` can be claimed by a worker up to 5 times, if the event fails t
 
 1. Multiple requests are made to the /created-event-enpoint with the same valid event payload concurrently.
 2. The endpoint validates the payload and attempts to create an `incoming_event` and an `outbox_event` in the database within a single transaction for each request.
-3. Due to the unique constraint on the `event_id` column in the `incoming_events` table, only one of the requests will succeed in creating the `incoming_event` and `outbox_event`. The other requests will fail with a database error indicating a violation of the unique constraint.
-4. The successful request will proceed with the normal workflow, while the failed requests will return a successful response indicating that the event has already been created and will not create duplicate events.
+3. Due to the unique constraint on the `event_id` column in the `incoming_events` table, only one of the requests will create the `incoming_event` and `outbox_event`. The other requests will face a database error, but it will be treated as expected in the same database layer, returnning nothing but no error.
+4. All request will return a success response.
+
+for the case 5 when the event was already processed by the `Processor` and in consequence already delivered to Kafka, but the worker stops before completed the marking to `delivered` in the database. These events will be processed again and it will be delivered again to Kafka, this is know issue. and this expose that the syste is maded to be delivered at least once, but not exactly once. In consequence, all the downstream systems that cosnumes these events must be idepotent, meaning they need to handle the same evetn even if its delivered multiple times.
+
+An mportant note is that each `outbox-event` increase the attemps every time is claimed by a worker, this does not means that the event will be processed the same amount of times, the system can claim an event more than the maximum attemps, but it will be discarded after the amount of attemps is reached. This is true for cases where the event was already calimed the maximun amout of times, but the worker was not abled to marked as discarded, and the evetn is claimed again by another worker but it will not be processed and directly discarded.
+
+## Status of the events
+
+The `outbox-events` can have the following status:
+
+- pending: the event is waiting to be processed by a worker.
+- processing: the event is being processed by a worker.
+- published: the event was successfully processed and sent to Kafka.
+- failed: the event was processed by a worker but failed to be sent to Kafka, and it can be retried.
+- discarded: the event was processed by a worker but failed to be sent to Kafka, and it cannot be retried anymore (e.g., due to reaching the maximum number of attempts or a non-retryable error).
+
+a valid transition of the status of an `outbox-event` is as follows:
+pending -> processing -> published
+pending -> processing -> failed -> pending (if the event can be retried)
+pending -> processing -> discarded (if the event cannot be retried anymore)
+failed -> processing -> published (if the event can be retried)
+failed -> processing -> discarded (if the event cannot be retried anymore)
+processing -> processing (if the event is claimed by another worker after the `locked_until` time has passed)
+
+there are no valid transitions from published or discarded to any other status, as these represent terminal states for the `outbox-event` and there are no queries that can change their status.
