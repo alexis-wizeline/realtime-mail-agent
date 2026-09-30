@@ -199,11 +199,12 @@ The `outbox-events` can have the following status:
 - discarded: the event was processed by a worker but failed to be sent to Kafka, and it cannot be retried anymore (e.g., due to reaching the maximum number of attempts or a non-retryable error).
 
 a valid transition of the status of an `outbox-event` is as follows:
-pending -> processing -> published
-pending -> processing -> failed (if the event can be retried)
-pending -> processing -> discarded (if the event cannot be retried anymore)
-failed -> processing -> published (if the event can be retried)
-failed -> processing -> discarded (if the event cannot be retried anymore)
-processing -> processing (if the event is claimed by another worker after the `locked_until` time has passed)
+
+- pending -> processing -> published
+- pending -> processing -> failed (if the event can be retried)
+- pending -> processing -> discarded (if the event cannot be retried anymore)
+- failed -> processing -> published (if the event can be retried)
+- failed -> processing -> discarded (if the event cannot be retried anymore)
+- processing -> processing (if the event is claimed by another worker after the `locked_until` time has passed)
 
 there are no valid transitions from published or discarded to any other status, as these represent terminal states for the `outbox-event` and there are no queries that can change their status.
