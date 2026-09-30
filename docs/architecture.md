@@ -70,7 +70,7 @@ This operation is also atomic means that if the creation of the `incoming_event`
 
 Also when a worker intends to process an `outobox-event`, is important to ensure that the event is not ebing processed by another worker at the same time. This is handled by the `locked_by` and `locked_until` columns in the `outbox_events` table. Also while the worker is claiming the event, it needs to be handled in a trasaction using the SKIP LOCKED FOR UPDATE clause to ensure no other worker can claim the same event at the same time.
 
-An `outbox-event` can be claimed by a worker up to 5 times, if the event fails to be processed after 5 attemps, it will be marked as discarded and it will no be claimed again.
+For `outbox-events` the maxt_attemps represents the maximum number of times a worker can claim an event. Because this decission an event reching the max_attemps can not describe if then was sent to kafka or not.
 
 ## Work flow cases
 
