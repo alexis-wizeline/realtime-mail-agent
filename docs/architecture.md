@@ -174,7 +174,19 @@ An `outbox-event` can be claimed by a worker up to 5 times, if the event fails t
 
 for the case 5 when the event was already processed by the `Processor` and in consequence already delivered to Kafka, but the worker stops before completed the marking to `delivered` in the database. These events will be processed again and it will be delivered again to Kafka, this is know issue. and this expose that the syste is maded to be delivered at least once, but not exactly once. In consequence, all the downstream systems that cosnumes these events must be idepotent, meaning they need to handle the same evetn even if its delivered multiple times.
 
-An mportant note is that each `outbox-event` increase the attemps every time is claimed by a worker, this does not means that the event will be processed the same amount of times, the system can claim an event more than the maximum attemps, but it will be discarded after the amount of attemps is reached. This is true for cases where the event was already calimed the maximun amout of times, but the worker was not abled to marked as discarded, and the evetn is claimed again by another worker but it will not be processed and directly discarded.
+## What an attempt means?
+
+An attempt represents a worker claim of an `outbox-event`
+
+A claimed event can crash before being marked as processed, means that can be crashed during, or after the external publishing to Kafka. So an attempt can not garantee tyhat an event if Kafka recieves the event.
+
+An expired lease represent an abigous state of the processing state.
+
+because this sytem is desinged as at least once delivery, Kafka can be receivening duplicated events, and the downstream systems must be able to handle this situation.
+
+open questions:
+
+- what attempts == max_attemps + expired lease means for the system?
 
 ## Status of the events
 
@@ -188,7 +200,7 @@ The `outbox-events` can have the following status:
 
 a valid transition of the status of an `outbox-event` is as follows:
 pending -> processing -> published
-pending -> processing -> failed -> pending (if the event can be retried)
+pending -> processing -> failed (if the event can be retried)
 pending -> processing -> discarded (if the event cannot be retried anymore)
 failed -> processing -> published (if the event can be retried)
 failed -> processing -> discarded (if the event cannot be retried anymore)
