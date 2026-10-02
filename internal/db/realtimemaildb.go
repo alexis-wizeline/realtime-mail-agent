@@ -134,16 +134,14 @@ func (r *RealtimeMailDB) MarkOutboxEventAsPublished(ctx context.Context, eventID
 		return false, fmt.Errorf("Inavlid EventID: %s", err.Error())
 	}
 
-	rows, err := r.queries.MarkOutboxEventsAsPublished(ctx, realtimemailsql.MarkOutboxEventsAsPublishedParams{
+	rows, err := r.queries.MarkOutboxEventAsPublished(ctx, realtimemailsql.MarkOutboxEventAsPublishedParams{
 		LockedBy: pgtype.Text{
 			String: workerID.String(),
 			Valid:  true,
 		},
-		OutboxEventIds: []pgtype.UUID{
-			{
-				Bytes: eventID,
-				Valid: true,
-			},
+		OutboxEventID: pgtype.UUID{
+			Bytes: eventID,
+			Valid: true,
 		},
 	})
 	if err != nil {
@@ -179,7 +177,7 @@ func (r *RealtimeMailDB) MarkOutboxEventAsFailed(ctx context.Context, p FailedEv
 		return false, err
 	}
 
-	rows, err := r.queries.MarkOutboxEventsAsFailed(ctx, realtimemailsql.MarkOutboxEventsAsFailedParams{
+	rows, err := r.queries.MarkOutboxEventAsFailed(ctx, realtimemailsql.MarkOutboxEventAsFailedParams{
 		LastError: pgtype.Text{
 			String: p.Err.Error(),
 			Valid:  true,
@@ -192,11 +190,9 @@ func (r *RealtimeMailDB) MarkOutboxEventAsFailed(ctx context.Context, p FailedEv
 			String: p.WorkerID.String(),
 			Valid:  true,
 		},
-		OutboxEventIds: []pgtype.UUID{
-			{
-				Bytes: p.EventID,
-				Valid: true,
-			},
+		OutboxEventID: pgtype.UUID{
+			Bytes: p.EventID,
+			Valid: true,
 		},
 	})
 	if err != nil {

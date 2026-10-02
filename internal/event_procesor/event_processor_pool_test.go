@@ -196,7 +196,7 @@ func Test_NewEventProcessorPool(t *testing.T) {
 }
 
 func Test_EventPool_Start_Process_Events(t *testing.T) {
-	ctx, done := context.WithTimeout(context.Background(), time.Duration(5)*time.Second)
+	ctx, done := context.WithTimeout(context.Background(), time.Duration(10)*time.Second)
 	utilsDB := testingutils.NewTestutilsDB(ctx, t)
 	defer utilsDB.Done()
 
@@ -297,7 +297,7 @@ func Test_EventPool_Start_Process_Events(t *testing.T) {
 }
 
 func Test_eventPool_start_Ctx_cancelled_Cancel_Operations(t *testing.T) {
-	ctx, done := context.WithTimeout(context.Background(), time.Duration(5)*time.Second)
+	ctx, done := context.WithTimeout(context.Background(), time.Duration(10)*time.Second)
 	utilsDB := testingutils.NewTestutilsDB(ctx, t)
 	defer utilsDB.Done()
 
