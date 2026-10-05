@@ -14,7 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/alexis-dragneel/realtime-mail-agent/internal/generated/realtimemailsql"
-	ingestevents "github.com/alexis-dragneel/realtime-mail-agent/internal/server/models/ingest_events"
+	ingestevents "github.com/alexis-dragneel/realtime-mail-agent/internal/models/ingest_events"
 )
 
 // TODO: use testutils instead

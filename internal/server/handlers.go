@@ -3,7 +3,7 @@ package server
 import (
 	"net/http"
 
-	ingestevents "github.com/alexis-dragneel/realtime-mail-agent/internal/server/models/ingest_events"
+	ingestevents "github.com/alexis-dragneel/realtime-mail-agent/internal/models/ingest_events"
 )
 
 type serverHandler func(*Server) http.HandlerFunc
