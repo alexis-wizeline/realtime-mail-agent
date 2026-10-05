@@ -10,6 +10,7 @@ import (
 	"github.com/alexis-dragneel/realtime-mail-agent/internal/db"
 	"github.com/alexis-dragneel/realtime-mail-agent/internal/event_procesor/processors"
 	"github.com/alexis-dragneel/realtime-mail-agent/internal/generated/realtimemailsql"
+	"github.com/alexis-dragneel/realtime-mail-agent/internal/logger"
 	"github.com/google/uuid"
 )
 
@@ -27,6 +28,7 @@ var (
 	WorkerIntervalSecZeroErr                 = errors.New("the interval for the worker must be higher than zero")
 	WorkerBackOffSecZeroErr                  = errors.New("the backoff retry for the worker needs to be higher than zero")
 	WorkerLeaseDurationHigherThanMAxLeaseErr = errors.New("the lease duration for the worker is more of 1 hour")
+	WorkerLoggerNilErr                       = errors.New("the logger for the worker can't be nil")
 
 	EventMaxAttemptsPassedErr = errors.New("current attempt is higher than max attempts available")
 )
@@ -41,6 +43,7 @@ type eventWorker struct {
 
 	db        PoolDB
 	processor processors.Processor
+	logger    *logger.Logger
 
 	eventLimit       int
 	leaseDurationSec int64
@@ -53,6 +56,7 @@ type eventWorker struct {
 type workerEventSettings struct {
 	db        PoolDB
 	processor processors.Processor
+	logger    *logger.Logger
 
 	eventLimit       int
 	leaseDurationSec int64
@@ -84,6 +88,9 @@ func (w workerEventSettings) valid() error {
 	if w.backoffSec <= 0 {
 		return WorkerBackOffSecZeroErr
 	}
+	if w.logger == nil {
+		return WorkerLoggerNilErr
+	}
 	return nil
 }
 
@@ -101,6 +108,7 @@ func newEventWorker(s workerEventSettings) (worker, error) {
 
 		db:        s.db,
 		processor: s.processor,
+		logger:    s.logger,
 
 		eventLimit:       s.eventLimit,
 		leaseDurationSec: s.leaseDurationSec,
@@ -120,7 +128,6 @@ func (w *eventWorker) work(ctx context.Context) {
 	defer timer.Stop()
 
 	for {
-		// get jobs
 		events, err := w.db.ClaimOutboxEvents(ctx, db.ClaimOutboxEventsParams{
 			WorkerName:  w.id.String(),
 			JobsLimit:   int32(w.eventLimit),
@@ -128,8 +135,7 @@ func (w *eventWorker) work(ctx context.Context) {
 		})
 		if err != nil || len(events) == 0 {
 			if err != nil {
-				// TODO once we have a logger we use w.logger instead
-				slog.Error("worker failed to get jobs", "worker_id", w.id, "error", err)
+				w.logger.Error(ctx, "worker failed to get jobs", err, slog.Any("worker_id", w.id))
 			}
 
 			if !timer.Stop() {
@@ -192,21 +198,19 @@ func (w *eventWorker) handleEvents(ctx context.Context, events []realtimemailsql
 	}
 }
 
-// TODO: change slog for w.log
 func (w *eventWorker) success(ctx context.Context, eventID uuid.UUID) {
 	marked, err := w.db.MarkOutboxEventAsPublished(ctx, eventID, w.id)
 	if err != nil {
-		slog.Error("success: failed for db error", "event_id", eventID, "error", err)
+		w.logger.Error(ctx, "success: failed for db error", err, slog.Any("event_id", eventID))
 		return
 	}
 	if !marked {
-		slog.Error("success: failed event db record not changed", "event_id", eventID)
+		w.logger.Error(ctx, "success: failed event db record not changed", nil, slog.Any("event_id", eventID))
 		return
 	}
-	slog.Info("success: event updated", "event_id", eventID)
+	w.logger.Info(ctx, "success: event updated", slog.Any("event_id", eventID))
 }
 
-// TODO: change slog for w.log
 func (w *eventWorker) failure(ctx context.Context, event realtimemailsql.OutboxEvent, err error) {
 	var marked bool
 	var queryErr error
@@ -226,14 +230,14 @@ func (w *eventWorker) failure(ctx context.Context, event realtimemailsql.OutboxE
 	}
 
 	if queryErr != nil {
-		slog.Error("failure: failed in the db", "event_id", event.ID, "error", queryErr)
+		w.logger.Error(ctx, "failure: failed in the db", queryErr, slog.Any("event_id", event.ID))
 		return
 	}
 	if !marked {
-		slog.Error("failure: failed event not marked", "event_id", event.ID)
+		w.logger.Error(ctx, "failure: failed event not marked", nil, slog.Any("event_id", event.ID))
 		return
 	}
-	slog.Info("failure: event marked", "event_id", event.ID)
+	w.logger.Info(ctx, "failure: event marked", slog.Any("event_id", event.ID))
 }
 
 func (w *eventWorker) nextIterationAt() time.Duration {

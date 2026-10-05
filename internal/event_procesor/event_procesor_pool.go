@@ -8,6 +8,7 @@ import (
 	"github.com/alexis-dragneel/realtime-mail-agent/internal/db"
 	"github.com/alexis-dragneel/realtime-mail-agent/internal/event_procesor/processors"
 	"github.com/alexis-dragneel/realtime-mail-agent/internal/generated/realtimemailsql"
+	"github.com/alexis-dragneel/realtime-mail-agent/internal/logger"
 	"github.com/google/uuid"
 )
 
@@ -17,6 +18,7 @@ var (
 	WorkerPoolLeaseDurationZeroErr     = errors.New("the lease duration for the worker needs to be more than 0")
 	WorkerPoolIntervalZeroErr          = errors.New("the interval for each worker run needs to be more than 0")
 	WorkerPoolWorkerBackoffSecZeroErr  = errors.New("the worker backoff needs to be more than 0")
+	WorkerPoolLoggerNilErr             = errors.New("the worker pool logger can't be nil")
 
 	PoolDBNilErr        = errors.New("the pool db is null or invalid")
 	PoolProcessorNilErr = errors.New("the pool processor is null or invalid")
@@ -77,6 +79,7 @@ type NewEventProcessorPoolParams struct {
 	WorkerSettings ProcessorWorkerPoolSettings
 	DB             PoolDB
 	Processor      processors.Processor
+	Logger         *logger.Logger
 }
 
 func (n NewEventProcessorPoolParams) valid() error {
@@ -85,6 +88,9 @@ func (n NewEventProcessorPoolParams) valid() error {
 	}
 	if n.Processor == nil {
 		return PoolProcessorNilErr
+	}
+	if n.Logger == nil {
+		return WorkerPoolLoggerNilErr
 	}
 	if err := n.WorkerSettings.valid(); err != nil {
 		return err
@@ -100,6 +106,7 @@ func NewEventProcessorPool(ctx context.Context, p NewEventProcessorPoolParams) (
 	workerSettings := workerEventSettings{
 		db:               p.DB,
 		processor:        p.Processor,
+		logger:           p.Logger,
 		eventLimit:       p.WorkerSettings.EventsWorkerLimit,
 		leaseDurationSec: p.WorkerSettings.EventLeaseDurationSec,
 		intervalSec:      p.WorkerSettings.WorkerIntervalSec,

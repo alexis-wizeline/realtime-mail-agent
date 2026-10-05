@@ -10,6 +10,7 @@ import (
 	"github.com/alexis-dragneel/realtime-mail-agent/internal/db"
 	"github.com/alexis-dragneel/realtime-mail-agent/internal/event_procesor/processors"
 	"github.com/alexis-dragneel/realtime-mail-agent/internal/generated/realtimemailsql"
+	"github.com/alexis-dragneel/realtime-mail-agent/internal/logger"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -93,6 +94,7 @@ func Test_worker_work(t *testing.T) {
 				worker, err := newEventWorker(workerEventSettings{
 					db:        db,
 					processor: mockP,
+					logger:    &logger.Logger{},
 
 					eventLimit:       10,
 					leaseDurationSec: 30 * 60,
@@ -159,6 +161,7 @@ func Test_worker_work(t *testing.T) {
 				worker, err := newEventWorker(workerEventSettings{
 					db:        db,
 					processor: mockP,
+					logger:    &logger.Logger{},
 
 					eventLimit:       10,
 					leaseDurationSec: 30 * 60,
@@ -222,6 +225,7 @@ func Test_worker_work(t *testing.T) {
 				worker, err := newEventWorker(workerEventSettings{
 					db:        db,
 					processor: mockP,
+					logger:    &logger.Logger{},
 
 					eventLimit:       10,
 					leaseDurationSec: 30 * 60,
@@ -287,6 +291,7 @@ func Test_worker_work(t *testing.T) {
 				worker, err := newEventWorker(workerEventSettings{
 					db:        db,
 					processor: mockP,
+					logger:    &logger.Logger{},
 
 					eventLimit:       10,
 					leaseDurationSec: 30 * 60,
@@ -349,6 +354,7 @@ func Test_worker_work(t *testing.T) {
 				worker, err := newEventWorker(workerEventSettings{
 					db:        db,
 					processor: mockP,
+					logger:    &logger.Logger{},
 
 					eventLimit:       10,
 					leaseDurationSec: 30 * 60,

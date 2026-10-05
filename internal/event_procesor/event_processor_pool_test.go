@@ -3,11 +3,13 @@ package eventprocesor
 import (
 	"context"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/alexis-dragneel/realtime-mail-agent/internal/event_procesor/processors"
+	"github.com/alexis-dragneel/realtime-mail-agent/internal/logger"
 	testingutils "github.com/alexis-dragneel/realtime-mail-agent/internal/testutils"
 	"github.com/alexis-dragneel/realtime-mail-agent/internal/testutils/mocks"
 )
@@ -25,6 +27,7 @@ func Test_NewEventProcessorPool(t *testing.T) {
 			params: NewEventProcessorPoolParams{
 				DB:        nil,
 				Processor: mocks.NewMockProcess(nil),
+				Logger:    &logger.Logger{},
 				WorkerSettings: ProcessorWorkerPoolSettings{
 					Workers:               2,
 					EventsWorkerLimit:     10,
@@ -41,6 +44,7 @@ func Test_NewEventProcessorPool(t *testing.T) {
 			name: "invalid processor",
 			params: NewEventProcessorPoolParams{
 				DB:        &mocks.MockDB{},
+				Logger:    &logger.Logger{},
 				Processor: nil,
 				WorkerSettings: ProcessorWorkerPoolSettings{
 					Workers:               2,
@@ -59,6 +63,7 @@ func Test_NewEventProcessorPool(t *testing.T) {
 			params: NewEventProcessorPoolParams{
 				DB:        &mocks.MockDB{},
 				Processor: mocks.NewMockProcess(nil),
+				Logger:    &logger.Logger{},
 				WorkerSettings: ProcessorWorkerPoolSettings{
 					Workers:               -1,
 					EventsWorkerLimit:     10,
@@ -76,6 +81,7 @@ func Test_NewEventProcessorPool(t *testing.T) {
 			params: NewEventProcessorPoolParams{
 				DB:        &mocks.MockDB{},
 				Processor: mocks.NewMockProcess(nil),
+				Logger:    &logger.Logger{},
 				WorkerSettings: ProcessorWorkerPoolSettings{
 					Workers:               2,
 					EventsWorkerLimit:     -1,
@@ -93,6 +99,7 @@ func Test_NewEventProcessorPool(t *testing.T) {
 			params: NewEventProcessorPoolParams{
 				DB:        &mocks.MockDB{},
 				Processor: mocks.NewMockProcess(nil),
+				Logger:    &logger.Logger{},
 				WorkerSettings: ProcessorWorkerPoolSettings{
 					Workers:               2,
 					EventsWorkerLimit:     10,
@@ -110,6 +117,7 @@ func Test_NewEventProcessorPool(t *testing.T) {
 			params: NewEventProcessorPoolParams{
 				DB:        &mocks.MockDB{},
 				Processor: mocks.NewMockProcess(nil),
+				Logger:    &logger.Logger{},
 				WorkerSettings: ProcessorWorkerPoolSettings{
 					Workers:               2,
 					EventsWorkerLimit:     10,
@@ -127,6 +135,7 @@ func Test_NewEventProcessorPool(t *testing.T) {
 			params: NewEventProcessorPoolParams{
 				DB:        &mocks.MockDB{},
 				Processor: mocks.NewMockProcess(nil),
+				Logger:    &logger.Logger{},
 				WorkerSettings: ProcessorWorkerPoolSettings{
 					Workers:               2,
 					EventsWorkerLimit:     10,
@@ -144,6 +153,7 @@ func Test_NewEventProcessorPool(t *testing.T) {
 			params: NewEventProcessorPoolParams{
 				DB:        &mocks.MockDB{},
 				Processor: mocks.NewMockProcess(nil),
+				Logger:    &logger.Logger{},
 				WorkerSettings: ProcessorWorkerPoolSettings{
 					Workers:               2,
 					EventsWorkerLimit:     10,
@@ -157,10 +167,28 @@ func Test_NewEventProcessorPool(t *testing.T) {
 			expectedErr: WorkerLeaseDurationHigherThanMAxLeaseErr,
 		},
 		{
+			name: "invalid no logger",
+			params: NewEventProcessorPoolParams{
+				DB:        &mocks.MockDB{},
+				Processor: mocks.NewMockProcess(nil),
+				WorkerSettings: ProcessorWorkerPoolSettings{
+					Workers:               2,
+					EventsWorkerLimit:     10,
+					EventLeaseDurationSec: 1 * 60 * 60,
+					WorkerIntervalSec:     2 * 60 * 60,
+					WorkerBackoffSec:      2 * 60 * 60,
+					WorkerJitter:          10 * 60 / 1000,
+				},
+			},
+			wantError:   true,
+			expectedErr: WorkerPoolLoggerNilErr,
+		},
+		{
 			name: "valid params",
 			params: NewEventProcessorPoolParams{
 				DB:        &mocks.MockDB{},
 				Processor: mocks.NewMockProcess(nil),
+				Logger:    &logger.Logger{},
 				WorkerSettings: ProcessorWorkerPoolSettings{
 					Workers:               2,
 					EventsWorkerLimit:     10,
@@ -203,10 +231,10 @@ func Test_EventPool_Start_Process_Events(t *testing.T) {
 	eventsQuantity := 20
 	var counter atomic.Uint64
 	doneCH := make(chan struct{})
+	var once sync.Once
 	p := mocks.NewMockProcess(func(_ context.Context, _ processors.Job) error {
-		counter.Add(1)
-		if counter.Load() >= uint64(eventsQuantity) {
-			doneCH <- struct{}{}
+		if counter.Add(1) >= uint64(eventsQuantity) {
+			once.Do(func() { close(doneCH) })
 		}
 		return nil
 	})
@@ -218,16 +246,19 @@ func Test_EventPool_Start_Process_Events(t *testing.T) {
 
 	breakCH, errCh := make(chan bool, 1), make(chan error, 1)
 	go func() {
+		defer close(errCh)
+		defer close(breakCH)
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-doneCH:
 				for {
-					events, err := utilsDB.QueryEventStatuses(t.Context(), eventIDs)
+					events, err := utilsDB.QueryEventStatuses(ctx, eventIDs)
 					if err != nil {
 						errCh <- err
 						breakCH <- true
+						return
 					}
 
 					index := foundIvalidStatusIndex(events, "published")
@@ -255,6 +286,7 @@ func Test_EventPool_Start_Process_Events(t *testing.T) {
 	pool, err := NewEventProcessorPool(ctx, NewEventProcessorPoolParams{
 		DB:        utilsDB.DB,
 		Processor: p,
+		Logger:    &logger.Logger{},
 		WorkerSettings: ProcessorWorkerPoolSettings{
 			Workers:               4,
 			EventsWorkerLimit:     5,
@@ -268,8 +300,6 @@ func Test_EventPool_Start_Process_Events(t *testing.T) {
 		t.Fatalf("unable to initialize pool: %v", err)
 	}
 	pool.Start()
-	close(breakCH)
-	close(errCh)
 
 	for err := range errCh {
 		if err != nil {
@@ -290,10 +320,12 @@ func Test_EventPool_Start_Process_Events(t *testing.T) {
 		t.Fatalf("Event: %v is not in in published status, is on %s", events[invalidIndex].ID, events[invalidIndex].Status)
 	}
 
-	err = utilsDB.CleanupDB(t.Context())
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	err = utilsDB.CleanupDB(ctx)
 	if err != nil {
 		t.Fatalf("cleanup test failed: %v", err)
 	}
+	cancel()
 }
 
 func Test_eventPool_start_Ctx_cancelled_Cancel_Operations(t *testing.T) {
@@ -305,7 +337,7 @@ func Test_eventPool_start_Ctx_cancelled_Cancel_Operations(t *testing.T) {
 	var counter atomic.Int32
 	p := mocks.NewMockProcess(func(ctx context.Context, _ processors.Job) error {
 		counter.Add(1)
-		doneCh <- struct{}{}
+		close(doneCh)
 		<-ctx.Done()
 		return context.Canceled
 	})
@@ -323,6 +355,7 @@ func Test_eventPool_start_Ctx_cancelled_Cancel_Operations(t *testing.T) {
 	pool, err := NewEventProcessorPool(ctx, NewEventProcessorPoolParams{
 		DB:        utilsDB.DB,
 		Processor: p,
+		Logger:    &logger.Logger{},
 		WorkerSettings: ProcessorWorkerPoolSettings{
 			Workers:               1,
 			EventsWorkerLimit:     5,
@@ -350,7 +383,8 @@ func Test_eventPool_start_Ctx_cancelled_Cancel_Operations(t *testing.T) {
 		t.Fatalf("Event: %v is not in in published status, is on %s", events[invalidIndex].ID, events[invalidIndex].Status)
 	}
 
-	err = utilsDB.CleanupDB(t.Context())
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	err = utilsDB.CleanupDB(ctx)
 	if err != nil {
 		t.Fatalf("cleanup test failed: %v", err)
 	}
@@ -374,7 +408,7 @@ func Test_eventPool_start_Ctx_cancelled_Cancel_Operations(t *testing.T) {
 			t.Fatalf("worker id: %s, not found in the stoped events", ref.worker.key())
 		}
 	}
-
+	cancel()
 }
 
 func foundIvalidStatusIndex(evs []testingutils.TestutilsOutboxEvent, status string) int {
