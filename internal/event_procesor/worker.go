@@ -15,9 +15,9 @@ import (
 )
 
 const (
-	nextAttemptBackoffSec = 60
-	defaultJitter         = 20
-	maxLeaseDurationSec   = 3600
+	nextAttemptBackoff = 1 * time.Minute
+	defaultJitter      = 5 * time.Second
+	maxLeaseDuration   = 1 * time.Hour
 )
 
 var (
@@ -45,12 +45,12 @@ type eventWorker struct {
 	processor processors.Processor
 	logger    *logger.Logger
 
-	eventLimit       int
-	leaseDurationSec int64
+	eventLimit    int
+	leaseDuration time.Duration
 
-	intervalSec int64
-	jitter      int64
-	backOffSec  int64
+	interval time.Duration
+	jitter   time.Duration
+	backOff  time.Duration
 }
 
 type workerEventSettings struct {
@@ -58,12 +58,12 @@ type workerEventSettings struct {
 	processor processors.Processor
 	logger    *logger.Logger
 
-	eventLimit       int
-	leaseDurationSec int64
+	eventLimit    int
+	leaseDuration time.Duration
 
-	intervalSec int64
-	jitter      int64
-	backoffSec  int64
+	interval time.Duration
+	jitter   time.Duration
+	backoff  time.Duration
 }
 
 func (w workerEventSettings) valid() error {
@@ -76,16 +76,16 @@ func (w workerEventSettings) valid() error {
 	if w.eventLimit <= 0 {
 		return WorkerEventLimitZeroErr
 	}
-	if w.leaseDurationSec <= 0 {
+	if w.leaseDuration <= 0 {
 		return WorkerLeaseDurationZeroErr
 	}
-	if w.intervalSec <= 0 {
+	if w.interval <= 0 {
 		return WorkerIntervalSecZeroErr
 	}
-	if w.leaseDurationSec > maxLeaseDurationSec {
+	if w.leaseDuration > maxLeaseDuration {
 		return WorkerLeaseDurationHigherThanMAxLeaseErr
 	}
-	if w.backoffSec <= 0 {
+	if w.backoff <= 0 {
 		return WorkerBackOffSecZeroErr
 	}
 	if w.logger == nil {
@@ -110,12 +110,12 @@ func newEventWorker(s workerEventSettings) (worker, error) {
 		processor: s.processor,
 		logger:    s.logger,
 
-		eventLimit:       s.eventLimit,
-		leaseDurationSec: s.leaseDurationSec,
+		eventLimit:    s.eventLimit,
+		leaseDuration: s.leaseDuration,
 
-		intervalSec: s.intervalSec,
-		jitter:      jitter,
-		backOffSec:  s.backoffSec,
+		interval: s.interval,
+		jitter:   jitter,
+		backOff:  s.backoff,
 	}, nil
 }
 
@@ -131,7 +131,7 @@ func (w *eventWorker) work(ctx context.Context) {
 		events, err := w.db.ClaimOutboxEvents(ctx, db.ClaimOutboxEventsParams{
 			WorkerName:  w.id.String(),
 			JobsLimit:   int32(w.eventLimit),
-			LockedUntil: time.Now().Add(time.Duration(w.leaseDurationSec) * time.Second),
+			LockedUntil: time.Now().Add(w.leaseDuration),
 		})
 		if err != nil || len(events) == 0 {
 			if err != nil {
@@ -145,7 +145,7 @@ func (w *eventWorker) work(ctx context.Context) {
 				}
 			}
 
-			timer.Reset(time.Duration(w.backOffSec) * time.Second)
+			timer.Reset(w.backOff)
 
 			select {
 			case <-timer.C:
@@ -219,7 +219,7 @@ func (w *eventWorker) failure(ctx context.Context, event realtimemailsql.OutboxE
 			EventID:       event.ID.Bytes,
 			WorkerID:      w.id,
 			Err:           err,
-			NextAttemptAt: time.Now().Add(nextAttemptBackoffSec * time.Second),
+			NextAttemptAt: time.Now().Add(nextAttemptBackoff),
 		})
 	} else {
 		marked, queryErr = w.db.MarkOutboxEventAsDiscarded(ctx, db.DiscardedEventParams{
@@ -242,7 +242,7 @@ func (w *eventWorker) failure(ctx context.Context, event realtimemailsql.OutboxE
 
 func (w *eventWorker) nextIterationAt() time.Duration {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	next := (w.intervalSec + r.Int63n(int64(w.jitter))) * int64(time.Second)
+	next := int64(w.interval) + r.Int63n(int64(w.jitter))
 	return time.Duration(next)
 }
 
