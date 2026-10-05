@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/alexis-dragneel/realtime-mail-agent/internal/db"
-	ingestevents "github.com/alexis-dragneel/realtime-mail-agent/internal/server/models/ingest_events"
+	ingestevents "github.com/alexis-dragneel/realtime-mail-agent/internal/models/ingest_events"
 )
 
 type EventIDs []string

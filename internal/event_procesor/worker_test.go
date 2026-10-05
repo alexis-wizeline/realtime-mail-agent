@@ -10,6 +10,7 @@ import (
 	"github.com/alexis-dragneel/realtime-mail-agent/internal/db"
 	"github.com/alexis-dragneel/realtime-mail-agent/internal/event_procesor/processors"
 	"github.com/alexis-dragneel/realtime-mail-agent/internal/generated/realtimemailsql"
+	"github.com/alexis-dragneel/realtime-mail-agent/internal/logger"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -93,13 +94,14 @@ func Test_worker_work(t *testing.T) {
 				worker, err := newEventWorker(workerEventSettings{
 					db:        db,
 					processor: mockP,
+					logger:    &logger.Logger{},
 
-					eventLimit:       10,
-					leaseDurationSec: 30 * 60,
+					eventLimit:    10,
+					leaseDuration: 30 * time.Minute,
 
-					intervalSec: 10,
-					jitter:      2,
-					backoffSec:  5 * 60,
+					interval: 10 * time.Second,
+					jitter:   2 * time.Second,
+					backoff:  5 * time.Second,
 				})
 				if err != nil {
 					t.Fatalf("invalid worker settings: %s", err.Error())
@@ -159,13 +161,14 @@ func Test_worker_work(t *testing.T) {
 				worker, err := newEventWorker(workerEventSettings{
 					db:        db,
 					processor: mockP,
+					logger:    &logger.Logger{},
 
-					eventLimit:       10,
-					leaseDurationSec: 30 * 60,
+					eventLimit:    10,
+					leaseDuration: 30 * time.Minute,
 
-					intervalSec: 10,
-					jitter:      2,
-					backoffSec:  5 * 60,
+					interval: 10 * time.Second,
+					jitter:   2 * time.Second,
+					backoff:  5 * time.Second,
 				})
 				if err != nil {
 					t.Fatalf("invalid worker settings: %s", err.Error())
@@ -222,13 +225,14 @@ func Test_worker_work(t *testing.T) {
 				worker, err := newEventWorker(workerEventSettings{
 					db:        db,
 					processor: mockP,
+					logger:    &logger.Logger{},
 
-					eventLimit:       10,
-					leaseDurationSec: 30 * 60,
+					eventLimit: 10,
 
-					intervalSec: 10,
-					jitter:      2,
-					backoffSec:  5 * 60,
+					leaseDuration: 30 * time.Minute,
+					interval:      10 * time.Second,
+					jitter:        2 * time.Second,
+					backoff:       5 * time.Second,
 				})
 				if err != nil {
 					t.Fatalf("invalid worker settings: %s", err.Error())
@@ -287,13 +291,14 @@ func Test_worker_work(t *testing.T) {
 				worker, err := newEventWorker(workerEventSettings{
 					db:        db,
 					processor: mockP,
+					logger:    &logger.Logger{},
 
-					eventLimit:       10,
-					leaseDurationSec: 30 * 60,
+					eventLimit:    10,
+					leaseDuration: 30 * time.Minute,
 
-					intervalSec: 10,
-					jitter:      2,
-					backoffSec:  5 * 60,
+					interval: 10 * time.Second,
+					jitter:   2 * time.Second,
+					backoff:  5 * time.Second,
 				})
 				if err != nil {
 					t.Fatalf("invalid worker settings: %s", err.Error())
@@ -349,13 +354,14 @@ func Test_worker_work(t *testing.T) {
 				worker, err := newEventWorker(workerEventSettings{
 					db:        db,
 					processor: mockP,
+					logger:    &logger.Logger{},
 
-					eventLimit:       10,
-					leaseDurationSec: 30 * 60,
+					eventLimit:    10,
+					leaseDuration: 30 * time.Minute,
 
-					intervalSec: 10,
-					jitter:      2,
-					backoffSec:  5 * 60,
+					interval: 10 * time.Second,
+					jitter:   2 * time.Second,
+					backoff:  5 * time.Second,
 				})
 				if err != nil {
 					t.Fatalf("invalid worker settings: %s", err.Error())

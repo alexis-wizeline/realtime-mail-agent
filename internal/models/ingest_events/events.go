@@ -6,7 +6,6 @@ import (
 	"io"
 )
 
-// TODO move this to aseparate package for only models
 type IngestEvent struct {
 	EventID   string `json:"event_id"`
 	UserID    string `json:"user_id"`

@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
 	"github.com/alexis-dragneel/realtime-mail-agent/internal/db"
 	"github.com/alexis-dragneel/realtime-mail-agent/internal/event_procesor/processors"
 	"github.com/alexis-dragneel/realtime-mail-agent/internal/generated/realtimemailsql"
+	"github.com/alexis-dragneel/realtime-mail-agent/internal/logger"
 	"github.com/google/uuid"
 )
 
@@ -17,6 +19,7 @@ var (
 	WorkerPoolLeaseDurationZeroErr     = errors.New("the lease duration for the worker needs to be more than 0")
 	WorkerPoolIntervalZeroErr          = errors.New("the interval for each worker run needs to be more than 0")
 	WorkerPoolWorkerBackoffSecZeroErr  = errors.New("the worker backoff needs to be more than 0")
+	WorkerPoolLoggerNilErr             = errors.New("the worker pool logger can't be nil")
 
 	PoolDBNilErr        = errors.New("the pool db is null or invalid")
 	PoolProcessorNilErr = errors.New("the pool processor is null or invalid")
@@ -30,13 +33,13 @@ type PoolDB interface {
 }
 
 type ProcessorWorkerPoolSettings struct {
-	Workers               int
-	EventsWorkerLimit     int
-	EventLeaseDurationSec int64
+	Workers            int
+	EventsWorkerLimit  int
+	EventLeaseDuration time.Duration
 
-	WorkerIntervalSec int64
-	WorkerBackoffSec  int64
-	WorkerJitter      int64
+	WorkerInterval time.Duration
+	WorkerBackoff  time.Duration
+	WorkerJitter   time.Duration
 }
 
 func (p ProcessorWorkerPoolSettings) valid() error {
@@ -46,13 +49,13 @@ func (p ProcessorWorkerPoolSettings) valid() error {
 	if p.EventsWorkerLimit <= 0 {
 		return WorkerPoolEventsWorkerLimitZeroErr
 	}
-	if p.EventLeaseDurationSec <= 0 {
+	if p.EventLeaseDuration <= 0 {
 		return WorkerPoolLeaseDurationZeroErr
 	}
-	if p.WorkerIntervalSec <= 0 {
+	if p.WorkerInterval <= 0 {
 		return WorkerPoolIntervalZeroErr
 	}
-	if p.WorkerBackoffSec <= 0 {
+	if p.WorkerBackoff <= 0 {
 		return WorkerPoolWorkerBackoffSecZeroErr
 	}
 
@@ -77,6 +80,7 @@ type NewEventProcessorPoolParams struct {
 	WorkerSettings ProcessorWorkerPoolSettings
 	DB             PoolDB
 	Processor      processors.Processor
+	Logger         *logger.Logger
 }
 
 func (n NewEventProcessorPoolParams) valid() error {
@@ -85,6 +89,9 @@ func (n NewEventProcessorPoolParams) valid() error {
 	}
 	if n.Processor == nil {
 		return PoolProcessorNilErr
+	}
+	if n.Logger == nil {
+		return WorkerPoolLoggerNilErr
 	}
 	if err := n.WorkerSettings.valid(); err != nil {
 		return err
@@ -98,13 +105,14 @@ func NewEventProcessorPool(ctx context.Context, p NewEventProcessorPoolParams) (
 		return nil, err
 	}
 	workerSettings := workerEventSettings{
-		db:               p.DB,
-		processor:        p.Processor,
-		eventLimit:       p.WorkerSettings.EventsWorkerLimit,
-		leaseDurationSec: p.WorkerSettings.EventLeaseDurationSec,
-		intervalSec:      p.WorkerSettings.WorkerIntervalSec,
-		jitter:           p.WorkerSettings.WorkerJitter,
-		backoffSec:       p.WorkerSettings.WorkerBackoffSec,
+		db:            p.DB,
+		processor:     p.Processor,
+		logger:        p.Logger,
+		eventLimit:    p.WorkerSettings.EventsWorkerLimit,
+		leaseDuration: p.WorkerSettings.EventLeaseDuration,
+		interval:      p.WorkerSettings.WorkerInterval,
+		jitter:        p.WorkerSettings.WorkerJitter,
+		backoff:       p.WorkerSettings.WorkerBackoff,
 	}
 	workers := make(poolWorkers)
 	for _ = range p.WorkerSettings.Workers {

@@ -52,28 +52,26 @@ FROM unnest(@outbox_event_ids::UUID[]) AS ids
 WHERE outbox_events.id = ids
 RETURNING outbox_events.*;
 
--- name: MarkOutboxEventsAsFailed :execrows
+-- name: MarkOutboxEventAsFailed :execrows
 UPDATE outbox_events
 SET status = 'failed',
-last_error = $1,
-next_attempt_at = $2,
+last_error = @last_error,
+next_attempt_at = @next_attempt_at,
 updated_at = NOW(),
 locked_by = NULL,
 locked_until = NULL
-FROM unnest(@outbox_event_ids::UUID[]) AS ids
-WHERE outbox_events.id = ids
+WHERE outbox_events.id = @outbox_event_id
 AND status = 'processing'
 AND locked_by = @locked_by;
 
--- name: MarkOutboxEventsAsPublished :execrows
+-- name: MarkOutboxEventAsPublished :execrows
 UPDATE outbox_events
 SET status = 'published',
 published_at = NOW(),
 updated_at = NOW(),
 locked_by = NULL,
 locked_until = NULL
-FROM unnest(@outbox_event_ids::UUID[]) AS ids
-WHERE outbox_events.id = ids
+WHERE outbox_events.id = @outbox_event_id
 AND status = 'processing' AND locked_by = @locked_by;
 
 -- name: MarkOutboxEventAsDiscarded :execrows

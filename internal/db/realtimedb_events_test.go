@@ -14,10 +14,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/alexis-dragneel/realtime-mail-agent/internal/generated/realtimemailsql"
-	ingestevents "github.com/alexis-dragneel/realtime-mail-agent/internal/server/models/ingest_events"
+	ingestevents "github.com/alexis-dragneel/realtime-mail-agent/internal/models/ingest_events"
 )
 
-// TODO: use testutils instead
 func setupTestDB(ctx context.Context, t *testing.T) (*pgxpool.Pool, *realtimemailsql.Queries, func()) {
 	t.Helper()
 	dbURL := os.Getenv("DATABASE_URL")
@@ -250,20 +249,23 @@ func Test_ClaimOutboxEvents(t *testing.T) {
 						mu.Unlock()
 
 						ids := outboxJobsIDs(jobs)
-						totalRows, err := q.MarkOutboxEventsAsPublished(t.Context(), realtimemailsql.MarkOutboxEventsAsPublishedParams{
-							LockedBy: pgtype.Text{
-								String: key,
-								Valid:  true,
-							},
-							OutboxEventIds: ids,
-						})
-						if err != nil {
-							errChan <- err
-							return
+						for _, id := range ids {
+							totalRows, err := q.MarkOutboxEventAsPublished(t.Context(), realtimemailsql.MarkOutboxEventAsPublishedParams{
+								LockedBy: pgtype.Text{
+									String: key,
+									Valid:  true,
+								},
+								OutboxEventID: id,
+							})
+							if err != nil {
+								errChan <- err
+								return
+							}
+							if totalRows != 1 {
+								errChan <- fmt.Errorf("Theevent %s was not marked as published", id.Bytes)
+							}
 						}
-						if totalRows != int64(len(ids)) {
-							errChan <- fmt.Errorf("the marketed jobs as published are not matching want: %v, got: %v", len(ids), totalRows)
-						}
+
 					})
 				}
 
@@ -327,27 +329,24 @@ func Test_ClaimOutboxEvents(t *testing.T) {
 				if err != nil {
 					t.Fatalf("Unbale to claim jobs for second worker: %s", err.Error())
 				}
-				ids := make([]pgtype.UUID, len(workerJobs))
-				for i, job := range workerJobs {
+				for _, job := range workerJobs {
 					_, ok := workerOneMap[job.ID.Bytes]
 					if !ok {
 						t.Fatal("Expected second worker to claim same jobs than first call")
 					}
-					ids[i] = job.ID
-				}
-
-				totalRows, err := q.MarkOutboxEventsAsPublished(t.Context(), realtimemailsql.MarkOutboxEventsAsPublishedParams{
-					OutboxEventIds: ids,
-					LockedBy: pgtype.Text{
-						String: lastWorkername,
-						Valid:  true,
-					},
-				})
-				if err != nil {
-					t.Fatalf("Unable to clean jobs by mark as publish: %err", err)
-				}
-				if totalRows != int64(len(workerJobs)) {
-					t.Fatalf("The amount of jobs markes as published does not match: expect %v, got: %v", len(workerJobs), totalRows)
+					totalRows, err := q.MarkOutboxEventAsPublished(t.Context(), realtimemailsql.MarkOutboxEventAsPublishedParams{
+						OutboxEventID: job.ID,
+						LockedBy: pgtype.Text{
+							String: lastWorkername,
+							Valid:  true,
+						},
+					})
+					if err != nil {
+						t.Fatalf("Unable to clean jobs by mark as publish: %err", err)
+					}
+					if totalRows != 1 {
+						t.Fatalf("The job %s was not marked as published", job.ID.Bytes)
+					}
 				}
 			},
 		},
