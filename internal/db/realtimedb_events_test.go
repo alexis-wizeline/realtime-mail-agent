@@ -17,7 +17,6 @@ import (
 	ingestevents "github.com/alexis-dragneel/realtime-mail-agent/internal/models/ingest_events"
 )
 
-// TODO: use testutils instead
 func setupTestDB(ctx context.Context, t *testing.T) (*pgxpool.Pool, *realtimemailsql.Queries, func()) {
 	t.Helper()
 	dbURL := os.Getenv("DATABASE_URL")
