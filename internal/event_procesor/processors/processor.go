@@ -22,7 +22,6 @@ func (p ProcessError) Unwrap() error {
 	return p.Err
 }
 
-// TODO: Handle this correctly
 func (p ProcessError) Retriable() bool {
 	return p.Retry
 }
