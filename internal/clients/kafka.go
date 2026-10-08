@@ -26,18 +26,35 @@ func NewKafkaCLient(url string) *KafkaClient {
 	}
 }
 
-func (k *KafkaClient) SendMessage(ctx context.Context, topic, key string, message []byte) error {
-	if strings.Trim(topic, " ") == "" {
+type MessageRequest struct {
+	Topic   string
+	Key     []byte
+	Message []byte
+	Headers []kafka.Header
+}
+
+func (m MessageRequest) valid() error {
+	if strings.Trim(m.Topic, " ") == "" {
 		return EmptyTopicErr
 	}
-	if len(message) == 0 {
+
+	if len(m.Message) == 0 {
 		return EmptyMessageErr
 	}
 
+	return nil
+}
+
+func (k *KafkaClient) SendMessage(ctx context.Context, m MessageRequest) error {
+	if err := m.valid(); err != nil {
+		return err
+	}
+
 	return k.w.WriteMessages(ctx, kafka.Message{
-		Topic: topic,
-		Key:   []byte(key),
-		Value: message,
+		Topic:   m.Topic,
+		Key:     m.Key,
+		Value:   m.Message,
+		Headers: m.Headers,
 	})
 }
 

@@ -31,10 +31,9 @@ type OutboxMapperFunc func(incomingEventID uuid.UUID, e *ingestevents.IngestEven
 var DefaultOutboxMapper OutboxMapperFunc = func(incomingEventID uuid.UUID, e *ingestevents.IngestEvent) OutboxEvent {
 	return OutboxEvent{
 		IncomingEventID: incomingEventID,
-		// TODO set these correctly
-		EventType:     e.Type,
-		Topic:         "events",
-		SchemaVersion: "1",
+		EventType:       e.Type,
+		Topic:           "real-time-mail",
+		SchemaVersion:   "1",
 	}
 }
 

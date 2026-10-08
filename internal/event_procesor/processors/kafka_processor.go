@@ -19,7 +19,21 @@ func NewKafkaProcessor(client *clients.KafkaClient) *KafkaProcessor {
 }
 
 func (k *KafkaProcessor) Process(ctx context.Context, j Job) error {
-	err := k.c.SendMessage(ctx, j.Topic, j.EventType, j.Payload)
+	err := k.c.SendMessage(ctx, clients.MessageRequest{
+		Topic:   j.Topic,
+		Key:     []byte(j.EventType),
+		Message: j.Payload,
+		Headers: []kafka.Header{
+			{
+				Key:   "Content-Type",
+				Value: []byte("application/json"),
+			},
+			{
+				Key:   "tarce-id",
+				Value: j.ID[:],
+			},
+		},
+	})
 	if err != nil {
 		var kafkaErr kafka.Error
 		ok := errors.As(err, &kafkaErr)
