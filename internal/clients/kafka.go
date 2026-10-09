@@ -17,20 +17,13 @@ type KafkaClient struct {
 	w *kafka.Writer
 }
 
-func NewKafkaCLient(url string) *KafkaClient {
+func NewKafkaClient(url string) Client {
 	return &KafkaClient{
 		w: &kafka.Writer{
-			Addr:                   kafka.TCP(url),
-			AllowAutoTopicCreation: true,
+			Addr:         kafka.TCP(url),
+			RequiredAcks: kafka.RequireAll,
 		},
 	}
-}
-
-type MessageRequest struct {
-	Topic   string
-	Key     []byte
-	Message []byte
-	Headers []kafka.Header
 }
 
 func (m MessageRequest) valid() error {

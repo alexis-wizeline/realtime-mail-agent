@@ -2,14 +2,15 @@ package processors
 
 import (
 	"context"
-	"errors"
+	"io"
+	"syscall"
 
 	"github.com/alexis-dragneel/realtime-mail-agent/internal/clients"
 	"github.com/segmentio/kafka-go"
 )
 
 type KafkaProcessor struct {
-	c *clients.KafkaClient
+	c clients.Client
 }
 
 func NewKafkaProcessor(client *clients.KafkaClient) *KafkaProcessor {
@@ -21,7 +22,7 @@ func NewKafkaProcessor(client *clients.KafkaClient) *KafkaProcessor {
 func (k *KafkaProcessor) Process(ctx context.Context, j Job) error {
 	err := k.c.SendMessage(ctx, clients.MessageRequest{
 		Topic:   j.Topic,
-		Key:     []byte(j.EventType),
+		Key:     []byte(j.Key),
 		Message: j.Payload,
 		Headers: []kafka.Header{
 			{
@@ -29,23 +30,34 @@ func (k *KafkaProcessor) Process(ctx context.Context, j Job) error {
 				Value: []byte("application/json"),
 			},
 			{
-				Key:   "tarce-id",
+				Key:   "job-id",
 				Value: j.ID[:],
 			},
 		},
 	})
 	if err != nil {
-		var kafkaErr kafka.Error
-		ok := errors.As(err, &kafkaErr)
-		if !ok {
-			return err
-		}
-
-		return ProcessError{
-			Err:   kafkaErr,
-			Retry: kafkaErr.Temporary(),
-		}
+		return toProcessError(err)
 	}
 
 	return nil
+}
+
+func toProcessError(err error) ProcessError {
+	retry := false
+	switch err {
+	case kafka.UnknownTopicOrPartition,
+		kafka.NetworkException,
+		kafka.RequestTimedOut,
+		context.DeadlineExceeded,
+		io.ErrUnexpectedEOF,
+		syscall.ECONNREFUSED,
+		syscall.ECONNRESET:
+		retry = true
+	default:
+	}
+
+	return ProcessError{
+		Err:   err,
+		Retry: retry,
+	}
 }

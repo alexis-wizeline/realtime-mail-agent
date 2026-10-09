@@ -31,8 +31,8 @@ type Processor interface {
 }
 
 type Job struct {
-	ID        uuid.UUID
-	EventType string
-	Topic     string
-	Payload   []byte
+	ID      uuid.UUID
+	Topic   string
+	Key     string
+	Payload []byte
 }

@@ -12,7 +12,7 @@ services:
     volumes:
       - ./postgres-data:/var/lib/postgresql/data
   broker:
-    image: apache/kafka:latest
+    image: apache/kafka:4.2.2
     container_name: kafka-mail-agent
     ports:
       - "9092:9092"
@@ -34,7 +34,7 @@ services:
     volumes:
       - ./kafka-data:/var/lib/kafka/data
   kafka-ui:
-    image: provectuslabs/kafka-ui:latest
+    image: provectuslabs/kafka-ui:0.9.3
     container_name: kafka-ui-mail-agent
     depends_on:
       - broker
