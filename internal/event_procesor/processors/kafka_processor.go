@@ -13,7 +13,7 @@ type KafkaProcessor struct {
 	c clients.Client
 }
 
-func NewKafkaProcessor(client *clients.KafkaClient) *KafkaProcessor {
+func NewKafkaProcessor(client clients.Client) Processor {
 	return &KafkaProcessor{
 		c: client,
 	}
