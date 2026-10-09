@@ -47,8 +47,13 @@ func toProcessError(err error) ProcessError {
 	switch err {
 	case kafka.UnknownTopicOrPartition,
 		kafka.NetworkException,
+		kafka.InvalidRequest,
+		kafka.NotEnoughReplicas,
+		kafka.NotEnoughReplicasAfterAppend,
+		kafka.BrokerNotAvailable,
 		kafka.RequestTimedOut,
 		context.DeadlineExceeded,
+		context.Canceled,
 		io.ErrUnexpectedEOF,
 		syscall.ECONNREFUSED,
 		syscall.ECONNRESET:
