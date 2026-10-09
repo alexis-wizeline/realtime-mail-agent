@@ -13,8 +13,13 @@ var (
 	EmptyMessageErr = errors.New("Message is empty")
 )
 
+type messageWritter interface {
+	WriteMessages(context.Context, ...kafka.Message) error
+	Close() error
+}
+
 type KafkaClient struct {
-	w *kafka.Writer
+	w messageWritter
 }
 
 func NewKafkaClient(url string) Client {
@@ -22,6 +27,7 @@ func NewKafkaClient(url string) Client {
 		w: &kafka.Writer{
 			Addr:         kafka.TCP(url),
 			RequiredAcks: kafka.RequireAll,
+			Async:        false,
 		},
 	}
 }
