@@ -2,12 +2,17 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"time"
 
+	"github.com/alexis-dragneel/realtime-mail-agent/internal/clients"
 	"github.com/alexis-dragneel/realtime-mail-agent/internal/db"
+	eventprocesor "github.com/alexis-dragneel/realtime-mail-agent/internal/event_procesor"
+	"github.com/alexis-dragneel/realtime-mail-agent/internal/event_procesor/processors"
 	"github.com/alexis-dragneel/realtime-mail-agent/internal/logger"
 	"github.com/alexis-dragneel/realtime-mail-agent/internal/server"
 	"github.com/subosito/gotenv"
@@ -36,23 +41,30 @@ func main() {
 	db := db.NewRealtimeMailDB(pool, db.DefaultOutboxMapper)
 	server := server.NewServer(db, logger)
 
-	// workerPool, err := eventprocesor.NewEventProcessorPool(ctx, eventprocesor.NewEventProcessorPoolParams{
-	// 	WorkerSettings: eventprocesor.ProcessorWorkerPoolSettings{
-	// 		Workers:            4,
-	// 		EventsWorkerLimit:  10,
-	// 		EventLeaseDuration: 10 * time.Minute,
-	// 		WorkerInterval:     5 * time.Second,
-	// 		WorkerBackoff:      10 * time.Second,
-	// 		WorkerJitter:       20 * time.Millisecond,
-	// 	},
-	// 	DB:        db,
-	// 	Processor: nil,
-	// 	Logger:    logger,
-	// })
-	// if err != nil {
-	// 	log.Fatalf("unable to create the worker pool: %s", err)
-	// }
-	// go workerPool.Start()
+	kafkaClient := clients.NewKafkaClient(os.Getenv("KAFKA_URL"))
+	defer func() {
+		err := kafkaClient.Close()
+		fmt.Fprintf(os.Stdout, "unable to close kafka client: %s", err)
+	}()
+
+	kafkaProcessor := processors.NewKafkaProcessor(kafkaClient)
+	workerPool, err := eventprocesor.NewEventProcessorPool(ctx, eventprocesor.NewEventProcessorPoolParams{
+		WorkerSettings: eventprocesor.ProcessorWorkerPoolSettings{
+			Workers:            4,
+			EventsWorkerLimit:  10,
+			EventLeaseDuration: 10 * time.Minute,
+			WorkerInterval:     5 * time.Second,
+			WorkerBackoff:      10 * time.Second,
+			WorkerJitter:       20 * time.Millisecond,
+		},
+		DB:        db,
+		Processor: kafkaProcessor,
+		Logger:    logger,
+	})
+	if err != nil {
+		log.Fatalf("unable to create the worker pool: %s", err)
+	}
+	go workerPool.Start()
 
 	port := os.Getenv("PORT")
 	err = http.ListenAndServe(":"+port, server)
