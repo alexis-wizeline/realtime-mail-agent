@@ -44,7 +44,7 @@ func main() {
 	kafkaClient := clients.NewKafkaClient(os.Getenv("KAFKA_URL"))
 	defer func() {
 		err := kafkaClient.Close()
-		fmt.Fprintf(os.Stdout, "unable to close kafka cleint: %s", err)
+		fmt.Fprintf(os.Stdout, "unable to close kafka client: %s", err)
 	}()
 
 	kafkaProcessor := processors.NewKafkaProcessor(kafkaClient)

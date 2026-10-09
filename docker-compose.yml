@@ -16,7 +16,6 @@ services:
     container_name: kafka-mail-agent
     ports:
       - "9092:9092"
-      - "29092:29092"
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller

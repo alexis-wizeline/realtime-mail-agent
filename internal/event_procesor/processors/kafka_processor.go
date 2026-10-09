@@ -2,6 +2,7 @@ package processors
 
 import (
 	"context"
+	"errors"
 	"io"
 	"syscall"
 
@@ -43,23 +44,16 @@ func (k *KafkaProcessor) Process(ctx context.Context, j Job) error {
 }
 
 func toProcessError(err error) ProcessError {
-	retry := false
-	switch err {
-	case kafka.UnknownTopicOrPartition,
-		kafka.NetworkException,
-		kafka.InvalidRequest,
-		kafka.NotEnoughReplicas,
-		kafka.NotEnoughReplicasAfterAppend,
-		kafka.BrokerNotAvailable,
-		kafka.RequestTimedOut,
-		context.DeadlineExceeded,
-		context.Canceled,
-		io.ErrUnexpectedEOF,
-		syscall.ECONNREFUSED,
-		syscall.ECONNRESET:
-		retry = true
-	default:
-	}
+	retry := errors.Is(err, kafka.UnknownTopicOrPartition) ||
+		errors.Is(err, kafka.NetworkException) ||
+		errors.Is(err, kafka.NotEnoughReplicas) ||
+		errors.Is(err, kafka.NotEnoughReplicasAfterAppend) ||
+		errors.Is(err, kafka.BrokerNotAvailable) ||
+		errors.Is(err, kafka.RequestTimedOut) ||
+		errors.Is(err, context.DeadlineExceeded) ||
+		errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.Is(err, syscall.ECONNREFUSED) ||
+		errors.Is(err, syscall.ECONNRESET)
 
 	return ProcessError{
 		Err:   err,

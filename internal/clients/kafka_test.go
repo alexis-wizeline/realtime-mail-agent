@@ -3,25 +3,54 @@ package clients
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/segmentio/kafka-go"
 )
 
 type fackeWritter struct {
-	err error
+	err            error
+	compareMsgFunc func(kafka.Message) error
 }
 
 func (f *fackeWritter) Close() error {
 	return nil
 }
 
-func (f *fackeWritter) WriteMessages(context.Context, ...kafka.Message) error {
+func (f *fackeWritter) WriteMessages(_ context.Context, msgs ...kafka.Message) error {
+	if f.compareMsgFunc != nil {
+		for _, msg := range msgs {
+			err := f.compareMsgFunc(msg)
+			if err != nil {
+				return err
+			}
+		}
+	}
 	return f.err
 }
 
 func Test_kafkaClient_error(t *testing.T) {
 	wildError := errors.New("a wild error has appear")
+	invalidMsgError := errors.New("inavlid message formed")
+
+	validMSg := kafka.Message{
+		Topic: "events",
+		Value: []byte("hi"),
+		Key:   []byte("some key"),
+		Headers: []kafka.Header{
+			{
+				Key:   "Content-Type",
+				Value: []byte("application/json"),
+			},
+		},
+	}
+	validateMSG := func(msg kafka.Message) error {
+		if !reflect.DeepEqual(validMSg, msg) {
+			return invalidMsgError
+		}
+		return nil
+	}
 
 	tcs := []struct {
 		name string
@@ -39,13 +68,13 @@ func Test_kafkaClient_error(t *testing.T) {
 		},
 		{
 			name:    "empty topic",
-			writter: &fackeWritter{err: EmptyTopicErr},
+			writter: &fackeWritter{},
 			req:     MessageRequest{Message: []byte("hi")},
 			want:    EmptyTopicErr,
 		},
 		{
 			name:    "empty message",
-			writter: &fackeWritter{err: EmptyMessageErr},
+			writter: &fackeWritter{},
 			req:     MessageRequest{Topic: "events"},
 			want:    EmptyMessageErr,
 		},
@@ -54,6 +83,21 @@ func Test_kafkaClient_error(t *testing.T) {
 			writter: &fackeWritter{err: wildError},
 			req:     MessageRequest{Topic: "events", Message: []byte("hi")},
 			want:    wildError,
+		},
+		{
+			name:    "msg is correct mapped",
+			writter: &fackeWritter{compareMsgFunc: validateMSG},
+			req: MessageRequest{
+				Topic:   "events",
+				Message: []byte("hi"),
+				Key:     []byte("some key"),
+				Headers: []kafka.Header{
+					{
+						Key:   "Content-Type",
+						Value: []byte("application/json"),
+					},
+				},
+			},
 		},
 	}
 
