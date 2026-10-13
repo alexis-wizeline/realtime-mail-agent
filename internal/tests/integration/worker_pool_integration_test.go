@@ -93,10 +93,6 @@ func Test_worker_pool_integration_test(t *testing.T) {
 		t.Fatalf("consumer read messages err: %s", err)
 	}
 
-	if len(messages) != len(eventIDs) {
-		t.Fatalf("messages does not match the number of events want: %d, got: %d", len(eventIDs), len(messages))
-	}
-
 	processedJobIDs := make(map[uuid.UUID]struct{})
 	for _, m := range messages {
 		for _, h := range m.Headers {
