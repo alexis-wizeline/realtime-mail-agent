@@ -17,6 +17,7 @@ import (
 
 func Test_worker_pool_integration_test(t *testing.T) {
 	consumer := testutils.NewTestConsumer(t, os.Getenv("KAFKA_URL"), db.GLOBAL_TOPIC)
+	defer consumer.Close()
 
 	dbUtils := testutils.NewTestutilsDB(t.Context(), t)
 	ctx, done := context.WithTimeout(t.Context(), 20*time.Second)
@@ -27,9 +28,12 @@ func Test_worker_pool_integration_test(t *testing.T) {
 
 	errCH, doneCh := make(chan error, 1), make(chan struct{}, 1)
 	go func() {
-		defer close(errCH)
-		defer close(doneCh)
 		tic := time.NewTicker(2 * time.Second)
+		defer func() {
+			close(errCH)
+			close(doneCh)
+			tic.Stop()
+		}()
 		for {
 			select {
 			case <-tic.C:

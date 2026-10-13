@@ -65,7 +65,10 @@ func NewTestConsumer(t *testing.T, url, topic string) *TestUtilsKafkaConsumer {
 }
 
 func (t *TestUtilsKafkaConsumer) ReadMessagesFromAtToAt(ctx context.Context, startsAt, endsAt time.Time, max int) ([]kafka.Message, error) {
-	t.r.SetOffsetAt(ctx, startsAt)
+	err := t.r.SetOffsetAt(ctx, startsAt)
+	if err != nil {
+		return nil, err
+	}
 	var messages []kafka.Message
 	for {
 		m, err := t.r.ReadMessage(ctx)
