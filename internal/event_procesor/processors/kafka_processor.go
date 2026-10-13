@@ -32,7 +32,7 @@ func (k *KafkaProcessor) Process(ctx context.Context, j Job) error {
 			},
 			{
 				Key:   "job-id",
-				Value: j.ID[:],
+				Value: []byte(j.ID.String()),
 			},
 		},
 	})

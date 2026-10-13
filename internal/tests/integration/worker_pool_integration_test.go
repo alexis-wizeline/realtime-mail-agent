@@ -12,6 +12,7 @@ import (
 	"github.com/alexis-dragneel/realtime-mail-agent/internal/event_procesor/processors"
 	"github.com/alexis-dragneel/realtime-mail-agent/internal/logger"
 	"github.com/alexis-dragneel/realtime-mail-agent/internal/testutils"
+	"github.com/google/uuid"
 )
 
 func Test_worker_pool_integration_test(t *testing.T) {
@@ -24,12 +25,14 @@ func Test_worker_pool_integration_test(t *testing.T) {
 		t.Fatalf("AddOutboxEvents() err: %s", err)
 	}
 
-	errCH := make(chan error, 1)
+	errCH, doneCh := make(chan error, 1), make(chan struct{}, 1)
 	go func() {
 		defer close(errCH)
+		defer close(doneCh)
+		tic := time.NewTicker(2 * time.Second)
 		for {
 			select {
-			case <-time.Tick(2 * time.Second):
+			case <-tic.C:
 			case <-ctx.Done():
 				return
 			}
@@ -37,7 +40,6 @@ func Test_worker_pool_integration_test(t *testing.T) {
 			events, err := dbUtils.QueryEventStatuses(ctx, eventIDs)
 			if err != nil {
 				errCH <- err
-				done()
 				return
 			}
 
@@ -50,7 +52,7 @@ func Test_worker_pool_integration_test(t *testing.T) {
 			}
 
 			if total == len(events) {
-				done()
+				return
 			}
 		}
 	}()
@@ -74,7 +76,7 @@ func Test_worker_pool_integration_test(t *testing.T) {
 	}
 
 	go pool.Start()
-	<-ctx.Done()
+	<-doneCh
 	end := time.Now()
 	for err := range errCH {
 		if err != nil {
@@ -82,7 +84,6 @@ func Test_worker_pool_integration_test(t *testing.T) {
 		}
 	}
 
-	ctx, done = context.WithTimeout(t.Context(), 5*time.Second)
 	messages, err := consumer.ReadMessagesFromAtToAt(ctx, start, end, len(eventIDs))
 	if err != nil {
 		t.Fatalf("consumer read messages err: %s", err)
@@ -90,6 +91,38 @@ func Test_worker_pool_integration_test(t *testing.T) {
 
 	if len(messages) != len(eventIDs) {
 		t.Fatalf("messages does not match the number of events want: %d, got: %d", len(eventIDs), len(messages))
+	}
+
+	processedJobIDs := make(map[uuid.UUID]struct{})
+	for _, m := range messages {
+		for _, h := range m.Headers {
+			if h.Key != "job-id" {
+				continue
+			}
+
+			id, err := uuid.ParseBytes(h.Value)
+			if err != nil {
+				t.Fatalf("parsing job id form kafka message err: %s", err)
+			}
+			processedJobIDs[id] = struct{}{}
+		}
+	}
+
+	outboxEvents, err := dbUtils.QueryEventStatuses(ctx, eventIDs)
+	if err != nil {
+		t.Fatalf("QueryEventStatuses err: %s", err)
+	}
+
+	for _, outboxEvent := range outboxEvents {
+		id, err := uuid.Parse(outboxEvent.ID)
+		if err != nil {
+			t.Fatalf("UUID parse from outbox event: %s", err)
+		}
+
+		_, ok := processedJobIDs[id]
+		if !ok {
+			t.Fatalf("event %s, not published", outboxEvent.ID)
+		}
 	}
 
 	err = dbUtils.CleanupDB(ctx)
