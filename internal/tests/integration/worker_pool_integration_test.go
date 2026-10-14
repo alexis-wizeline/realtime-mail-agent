@@ -130,7 +130,7 @@ func Test_worker_pool_integration_test(t *testing.T) {
 				if h.Key != "job-id" {
 					continue
 				}
-				id, err := uuid.ParseBytes(h.Value[])
+				id, err := uuid.ParseBytes(h.Value)
 				if err != nil {
 					t.Fatalf("unable to parse job id from kafka message: %s", err)
 				}
