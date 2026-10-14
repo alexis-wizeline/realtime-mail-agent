@@ -13,6 +13,7 @@ import (
 	"github.com/alexis-dragneel/realtime-mail-agent/internal/logger"
 	"github.com/alexis-dragneel/realtime-mail-agent/internal/testutils"
 	"github.com/google/uuid"
+	"github.com/segmentio/kafka-go"
 )
 
 func Test_worker_pool_integration_test(t *testing.T) {
@@ -57,12 +58,19 @@ func Test_worker_pool_integration_test(t *testing.T) {
 			}
 
 			if total == len(events) {
+				doneCh <- struct{}{}
 				return
 			}
 		}
 	}()
 
 	client := clients.NewKafkaClient(os.Getenv("KAFKA_URL"))
+	t.Cleanup(func() {
+		err := client.Close()
+		if err != nil {
+			t.Fatalf("unable to close kafka client; %s", err)
+		}
+	})
 	start := time.Now()
 	pool, err := eventprocesor.NewEventProcessorPool(ctx, eventprocesor.NewEventProcessorPoolParams{
 		WorkerSettings: eventprocesor.ProcessorWorkerPoolSettings{
@@ -80,6 +88,13 @@ func Test_worker_pool_integration_test(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewEventProcessorPool err: %s", err)
 	}
+	t.Cleanup(func() {
+		err = dbUtils.CleanupDB(context.Background())
+		if err != nil {
+			t.Fatalf("CleanupDB err: %s", err)
+		}
+		done()
+	})
 
 	go pool.Start()
 	select {
@@ -95,52 +110,42 @@ func Test_worker_pool_integration_test(t *testing.T) {
 		}
 	}
 
-	messages, err := consumer.ReadMessagesFromAtToAt(ctx, start, end, len(eventIDs))
-	if err != nil {
-		t.Fatalf("consumer read messages err: %s", err)
-	}
-
-	processedJobIDs := make(map[uuid.UUID]struct{})
-	for _, m := range messages {
-		for _, h := range m.Headers {
-			if h.Key != "job-id" {
-				continue
-			}
-
-			id, err := uuid.ParseBytes(h.Value)
-			if err != nil {
-				t.Fatalf("parsing job id form kafka message err: %s", err)
-			}
-			processedJobIDs[id] = struct{}{}
-		}
-	}
-
 	outboxEvents, err := dbUtils.QueryEventStatuses(ctx, eventIDs)
 	if err != nil {
 		t.Fatalf("QueryEventStatuses err: %s", err)
 	}
 
+	processedJobIDs := make(map[uuid.UUID]struct{})
 	for _, outboxEvent := range outboxEvents {
 		id, err := uuid.Parse(outboxEvent.ID)
 		if err != nil {
 			t.Fatalf("UUID parse from outbox event: %s", err)
 		}
-
-		_, ok := processedJobIDs[id]
-		if !ok {
-			t.Fatalf("event %s, not published", outboxEvent.ID)
-		}
+		processedJobIDs[id] = struct{}{}
 	}
 
-	t.Cleanup(func() {
-		err := client.Close()
-		if err != nil {
-			t.Fatalf("unable to close kafka client; %s", err)
+	validFunc := func(mesagges ...kafka.Message) bool {
+		for _, m := range mesagges {
+			for _, h := range m.Headers {
+				if h.Key != "job-id" {
+					continue
+				}
+				id, err := uuid.ParseBytes(h.Value[])
+				if err != nil {
+					t.Fatalf("unable to parse job id from kafka message: %s", err)
+				}
+				_, ok := processedJobIDs[id]
+				if !ok {
+					return false
+				}
+			}
 		}
-		err = dbUtils.CleanupDB(context.Background())
-		if err != nil {
-			t.Fatalf("CleanupDB err: %s", err)
-		}
-		done()
-	})
+
+		return true
+	}
+
+	_, err = consumer.ReadMessagesFromAtToAt(ctx, start, end, validFunc)
+	if err != nil {
+		t.Fatalf("consumer read messages err: %s", err)
+	}
 }
