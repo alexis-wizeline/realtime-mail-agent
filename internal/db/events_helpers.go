@@ -13,7 +13,10 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const DEFAULT_JOBS_LIMIT = 100
+const (
+	DEFAULT_JOBS_LIMIT = 100
+	GLOBAL_TOPIC       = "real-time-mail"
+)
 
 type OutboxEvent struct {
 	IncomingEventID uuid.UUID
@@ -31,10 +34,9 @@ type OutboxMapperFunc func(incomingEventID uuid.UUID, e *ingestevents.IngestEven
 var DefaultOutboxMapper OutboxMapperFunc = func(incomingEventID uuid.UUID, e *ingestevents.IngestEvent) OutboxEvent {
 	return OutboxEvent{
 		IncomingEventID: incomingEventID,
-		// TODO set these correctly
-		EventType:     e.Type,
-		Topic:         "events",
-		SchemaVersion: "1",
+		EventType:       e.Type,
+		Topic:           GLOBAL_TOPIC,
+		SchemaVersion:   "1",
 	}
 }
 

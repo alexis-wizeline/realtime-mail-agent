@@ -22,7 +22,6 @@ func (p ProcessError) Unwrap() error {
 	return p.Err
 }
 
-// TODO: Handle this correctly
 func (p ProcessError) Retriable() bool {
 	return p.Retry
 }
@@ -32,8 +31,8 @@ type Processor interface {
 }
 
 type Job struct {
-	ID        uuid.UUID
-	EventType string
-	Topic     string
-	Payload   []byte
+	ID      uuid.UUID
+	Topic   string
+	Key     string
+	Payload []byte
 }

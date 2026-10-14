@@ -208,3 +208,12 @@ a valid transition of the status of an `outbox-event` is as follows:
 - processing -> processing (if the event is claimed by another worker after the `locked_until` time has passed)
 
 there are no valid transitions from published or discarded to any other status, as these represent terminal states for the `outbox-event` and there are no queries that can change their status.
+
+## Kafka
+
+The `Processor` is responsable for handle events, as it is now it is only sending events to kafka, the key parts of the producer are:
+
+- Client: it is responsible to manage the connection to the kafka cluster.
+- Processors: it is resposible to map the event or in this case job to a kafka messsage, and send it to the kafka cluster, it also handles error handling by deciding if the event can be retried or not, and return the result to the worker.
+
+As we know the key in a kafka message is used to determine the partition where the message will be sent. Currently our syste uses the `incomming_event_id` as the key for the kafka message, this means that all events with the same `incoming_event_id` will be sent to the same partition. The reason behind this is because right now there is no certanity of the order of events, we will let the same consumer to handle the events that were created from the same `incomming_event_id`, if the future we choose that certain events need to procees in certain order we can change the key to be `user_id` or `message_id` or any other field that can be used to group events that need to be processed in order. This key does not garantee consumers to process in order, this can only be garantee on how the consumers are designed.

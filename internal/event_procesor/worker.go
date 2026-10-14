@@ -180,10 +180,10 @@ func (w *eventWorker) handleEvents(ctx context.Context, events []realtimemailsql
 
 	for _, event := range events {
 		job := processors.Job{
-			ID:        event.ID.Bytes,
-			EventType: event.EventType,
-			Topic:     event.Topic,
-			Payload:   event.Payload,
+			ID:      event.ID.Bytes,
+			Topic:   event.Topic,
+			Key:     event.IncomingEventID.String(),
+			Payload: event.Payload,
 		}
 		if event.Attempts > event.MaxAttempts {
 			w.failure(ctx, event, EventMaxAttemptsPassedErr)

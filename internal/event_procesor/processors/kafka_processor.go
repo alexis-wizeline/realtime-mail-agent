@@ -1,0 +1,54 @@
+package processors
+
+import (
+	"context"
+	"errors"
+
+	"github.com/alexis-dragneel/realtime-mail-agent/internal/clients"
+	"github.com/segmentio/kafka-go"
+)
+
+type KafkaProcessor struct {
+	c clients.Client
+}
+
+func NewKafkaProcessor(client clients.Client) Processor {
+	return &KafkaProcessor{
+		c: client,
+	}
+}
+
+func (k *KafkaProcessor) Process(ctx context.Context, j Job) error {
+	err := k.c.SendMessage(ctx, clients.MessageRequest{
+		Topic:   j.Topic,
+		Key:     []byte(j.Key),
+		Message: j.Payload,
+		Headers: []kafka.Header{
+			{
+				Key:   "Content-Type",
+				Value: []byte("application/json"),
+			},
+			{
+				Key:   "job-id",
+				Value: []byte(j.ID.String()),
+			},
+		},
+	})
+	if err != nil {
+		return toProcessError(err)
+	}
+
+	return nil
+}
+
+func toProcessError(err error) ProcessError {
+	retry := !errors.Is(err, kafka.InvalidMessage) &&
+		!errors.Is(err, kafka.InvalidMessageSize) &&
+		!errors.Is(err, kafka.MessageSizeTooLarge) &&
+		!errors.Is(err, kafka.InvalidTopic)
+
+	return ProcessError{
+		Err:   err,
+		Retry: retry,
+	}
+}
