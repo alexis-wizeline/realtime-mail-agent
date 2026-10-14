@@ -21,7 +21,8 @@ func Test_worker_pool_integration_test(t *testing.T) {
 
 	dbUtils := testutils.NewTestutilsDB(t.Context(), t)
 	ctx, done := context.WithTimeout(t.Context(), 20*time.Second)
-	eventIDs, err := dbUtils.AddOutboxEvents(ctx, 20)
+	eventsQuantity := 20
+	eventIDs, err := dbUtils.AddOutboxEvents(ctx, eventsQuantity)
 	if err != nil {
 		t.Fatalf("AddOutboxEvents() err: %s", err)
 	}
@@ -61,6 +62,7 @@ func Test_worker_pool_integration_test(t *testing.T) {
 		}
 	}()
 
+	client := clients.NewKafkaClient(os.Getenv("KAFKA_URL"))
 	start := time.Now()
 	pool, err := eventprocesor.NewEventProcessorPool(ctx, eventprocesor.NewEventProcessorPoolParams{
 		WorkerSettings: eventprocesor.ProcessorWorkerPoolSettings{
@@ -72,7 +74,7 @@ func Test_worker_pool_integration_test(t *testing.T) {
 			WorkerJitter:       20 * time.Millisecond,
 		},
 		DB:        dbUtils.DB,
-		Processor: processors.NewKafkaProcessor(clients.NewKafkaClient(os.Getenv("KAFKA_URL"))),
+		Processor: processors.NewKafkaProcessor(client),
 		Logger:    &logger.Logger{},
 	})
 	if err != nil {
@@ -80,7 +82,12 @@ func Test_worker_pool_integration_test(t *testing.T) {
 	}
 
 	go pool.Start()
-	<-doneCh
+	select {
+	case <-doneCh:
+	case <-ctx.Done():
+		t.Fatalf("context cancelled: the test was unable to finish on time it took more than 20 seconds")
+	}
+
 	end := time.Now()
 	for err := range errCH {
 		if err != nil {
@@ -125,9 +132,15 @@ func Test_worker_pool_integration_test(t *testing.T) {
 		}
 	}
 
-	err = dbUtils.CleanupDB(ctx)
-	if err != nil {
-		t.Fatalf("CleanupDB err: %s", err)
-	}
-	done()
+	t.Cleanup(func() {
+		err := client.Close()
+		if err != nil {
+			t.Fatalf("unable to close kafka client; %s", err)
+		}
+		err = dbUtils.CleanupDB(context.Background())
+		if err != nil {
+			t.Fatalf("CleanupDB err: %s", err)
+		}
+		done()
+	})
 }

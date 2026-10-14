@@ -66,11 +66,12 @@ func NewTestConsumer(t *testing.T, url, topic string) *TestUtilsKafkaConsumer {
 	return k
 }
 
-func (t *TestUtilsKafkaConsumer) ReadMessagesFromAtToAt(ctx context.Context, startsAt, endsAt time.Time, max int) ([]kafka.Message, error) {
+func (t *TestUtilsKafkaConsumer) ReadMessagesFromAtToAt(ctx context.Context, startsAt, endsAt time.Time, maxJobIds int) ([]kafka.Message, error) {
 	err := t.r.SetOffsetAt(ctx, startsAt)
 	if err != nil {
 		return nil, err
 	}
+	distinctJobIds := make(map[string]struct{})
 	var messages []kafka.Message
 	for {
 		m, err := t.r.ReadMessage(ctx)
@@ -81,8 +82,18 @@ func (t *TestUtilsKafkaConsumer) ReadMessagesFromAtToAt(ctx context.Context, sta
 			return messages, nil
 		}
 
+		for _, h := range m.Headers {
+			if h.Key != "job-id" {
+				continue
+			}
+			_, ok := distinctJobIds[string(h.Value)]
+			if !ok {
+				distinctJobIds[string(h.Value)] = struct{}{}
+			}
+		}
+
 		messages = append(messages, m)
-		if len(messages) == max {
+		if len(distinctJobIds) == maxJobIds {
 			return messages, nil
 		}
 	}
