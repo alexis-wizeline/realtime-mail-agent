@@ -15,6 +15,8 @@ type TestUtilsKafkaConsumer struct {
 	r *kafka.Reader
 }
 
+// Single topic and partition, for now it will work this way other whise this needs to set up a multi reader struct
+// to support multi topic/partiton we need to convert this to a group trough group id, but unsure what other chnages will require.
 func NewTestConsumer(t *testing.T, url, topic string) *TestUtilsKafkaConsumer {
 	t.Helper()
 

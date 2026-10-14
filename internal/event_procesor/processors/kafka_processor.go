@@ -3,8 +3,6 @@ package processors
 import (
 	"context"
 	"errors"
-	"io"
-	"syscall"
 
 	"github.com/alexis-dragneel/realtime-mail-agent/internal/clients"
 	"github.com/segmentio/kafka-go"
@@ -44,16 +42,10 @@ func (k *KafkaProcessor) Process(ctx context.Context, j Job) error {
 }
 
 func toProcessError(err error) ProcessError {
-	retry := errors.Is(err, kafka.UnknownTopicOrPartition) ||
-		errors.Is(err, kafka.NetworkException) ||
-		errors.Is(err, kafka.NotEnoughReplicas) ||
-		errors.Is(err, kafka.NotEnoughReplicasAfterAppend) ||
-		errors.Is(err, kafka.BrokerNotAvailable) ||
-		errors.Is(err, kafka.RequestTimedOut) ||
-		errors.Is(err, context.DeadlineExceeded) ||
-		errors.Is(err, io.ErrUnexpectedEOF) ||
-		errors.Is(err, syscall.ECONNREFUSED) ||
-		errors.Is(err, syscall.ECONNRESET)
+	retry := !errors.Is(err, kafka.InvalidMessage) &&
+		!errors.Is(err, kafka.InvalidMessageSize) &&
+		!errors.Is(err, kafka.MessageSizeTooLarge) &&
+		!errors.Is(err, kafka.InvalidTopic)
 
 	return ProcessError{
 		Err:   err,
